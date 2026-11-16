@@ -493,11 +493,6 @@ export function recordTickSkip(run, now) {
   }
 }
 
-/** Record an unanswered round attempt before resending the same round. */
-export function recordAttempt(run, attempt) {
-  return { ...run, attempt, updatedAt: Date.now() }
-}
-
 /** Settle a run into a terminal status. */
 export function settle(run, status, reason, now) {
   return {

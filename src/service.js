@@ -59,6 +59,7 @@ export function createService(options) {
   /** Persist one run snapshot and update the cache. Returns false when the log rejects it. */
   function update(session, run) {
     const key = keyOf(session)
+    const previous = runs.get(key)
     runs.set(key, run)
     if (run === null) return true
     try {
@@ -66,6 +67,8 @@ export function createService(options) {
       return true
     } catch (error) {
       logger?.warn?.(`endurance: could not persist run state: ${messageOf(error)}`)
+      if (previous === undefined) runs.delete(key)
+      else runs.set(key, previous)
       return false
     }
   }
