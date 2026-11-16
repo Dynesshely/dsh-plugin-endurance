@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Endurance",
+    "description": "Keep long-running tasks under convergence checks until the chosen mode settles."
+  }
+}

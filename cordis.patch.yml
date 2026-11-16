@@ -1,0 +1,7 @@
+# dsh-plugin-endurance bundle patch.
+#
+# One host row: registers the endurance tools, the per-session run state, and
+# the idle/tick driver that injects convergence checks into the owning session.
+- insert:
+    - id: endurance
+      name: dsh-plugin-endurance
