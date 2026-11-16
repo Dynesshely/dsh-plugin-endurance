@@ -29,7 +29,7 @@ import { findUnknownPlaceholders } from './prompt.js'
 class EnduranceToolError extends Error {
   /** @param {string} code - stable code. @param {string} message - model-facing message. */
   constructor(code, message) {
-    super(message)
+    super(`[${code}] ${message}`)
     this.name = 'EnduranceToolError'
     this.code = code
   }
