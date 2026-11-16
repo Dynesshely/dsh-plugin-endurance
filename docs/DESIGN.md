@@ -1,21 +1,20 @@
 # dsh-plugin-endurance — 设计
 
 > 代号：**endurance（续航）**
-> 仓库：`Dynesshely/dsh-plugin-endurance` · 设计 issue：#1 · 状态：草案 v0.1（评审中）
-> 本文面向用户评审：先定语义与契约，再按里程碑实现。
+> 仓库：`Dynesshely/dsh-plugin-endurance` · 设计 issue：#1 · 状态：草案 v0.2（已按首轮评审修订，评审中）
 
 ---
 
 ## 1. 摘要
 
-`dsh-plugin-endurance` 为 DSH 的长程任务加一条「续航约束」：用户为任务声明**最短墙钟时长**与**收敛门槛**（连续 N 轮自检置信率 ≥ G）。模型在理解用户提示词后，生成检查提示词模板，并调用 `task_endurance_set` 登记本次续航运行。
+`dsh-plugin-endurance` 为 DSH 的长程任务加一条「收敛核验」约束：用户为任务声明**计划时长**与**收敛门槛**（连续 N 轮自检置信率 ≥ G）。模型在理解用户提示词后，生成检查提示词模板，并调用 `task_endurance_set` 登记本次续航运行。
 
-登记后，插件在**每个任务回合结束、会话转入空闲时**自动向同一会话注入一轮「按模板渲染出的检查提示词」（以插件自有来源的 user 消息形式）。模型在检查回合里核验任务，然后二选一：
+登记后，模型先完整执行一个任务回合；插件随后在**每个任务回合结束、会话转入空闲时**自动向同一会话注入一轮「按模板渲染出的检查提示词」（以插件自有来源的 user 消息形式）。模型在检查回合里核验任务，然后二选一：
 
 - 调用 `task_endurance_post` 汇报本轮置信率（达到门槛则累计一轮「连续达标」）；
 - 调用 `task_endurance_reset` 表示任务尚未完成，需要继续（连续达标计数清零）。
 
-插件只在**时长已满且连续 N 轮达标**时收敛、停止注入。若模型提前收尾，剩余时长被用于多轮核验与加固；若模型始终无法达标，插件在安全上限处停止并留下明确的终态与原因。目标：用户第二天醒来拿到的不是「提前收尾的半成品」，而是一份经过多轮核验、满足声明的产物。
+**收敛条件是「连续 N 轮达标」；计划时长是参考，不是门槛。** 时长只用于推导检查节奏与安全上限：若任务提前达到收敛条件就结束；若到计划时刻仍未达标，则继续核验直到达标或触达安全上限。这样用户既能拿到经过多轮独立核验、确定满足要求的产物，又不会为了凑时长而空转。
 
 ---
 
@@ -23,10 +22,10 @@
 
 ### 2.1 目标
 
-1. 用户用自然语言声明「时长 + 收敛轮数 + 置信率门槛」，模型转成结构化参数，经工具调用登记。
+1. 用户用自然语言声明「计划时长 + 收敛轮数 + 置信率门槛」，模型转成结构化参数，经工具调用登记。
 2. 检查提示词由模型根据任务生成（`check_prompt` 模板 + 占位符），插件不替模型编检查内容。
 3. 插件自动驱动「任务回合 → 检查回合 → 任务回合」循环，直到满足结束条件；用户无需守着。
-4. 时长是**下限**：到点前即使置信率达标也不结束，剩余时间用于深化、加固与补充证据。
+4. **达标即收敛**（用户确认的语义）；计划时长用于检查节奏与安全上限，不阻止提前收敛。
 5. 结束条件可审计：每轮注入、每次 post/reset、终态原因都落会话日志；重启后可恢复。
 6. 无人值守安全：轮次上限、宽限期、停滞判定、错误计数、用户中止优先级；不无限夜跑。
 7. 与 DSH 既有机制（goal 自动轮次、schedule、用户消息、子代理）不打架。
@@ -34,7 +33,7 @@
 ### 2.2 非目标（v0.1）
 
 - 不做跨会话、跨工作区的续航编排。
-- 不替代 `goal` / `schedule`：goal 负责「把目标做完」，endurance 负责「做满时长并核验到位」。
+- 不替代 `goal` / `schedule`：goal 负责「把目标做完」，endurance 负责「多轮核验并确认收敛」。
 - 不自动生成或改写用户的任务内容与检查标准。
 - 不在 v0.1 提供客户端 UI（状态行、命令、设置页属 M2）。
 - 不承诺模型一定产出合格产物；插件保证的是流程约束与可审计性。
@@ -46,14 +45,15 @@
 | 术语 | 含义 |
 |---|---|
 | **续航运行（run）** | 一次由 `task_endurance_set` 登记的约束，隶属于一个会话，同一时刻最多一个活动运行。 |
-| **截止时刻（deadline）** | `created_at + duration`。到达后才可能收敛。 |
-| **硬截止（hard deadline）** | `deadline + grace`，正常情况下不再注入检查的时间上限（用于收尾）。 |
+| **计划时刻（target）** | `created_at + duration`，用户声明的计划结束时刻，仅作参考：决定检查节奏、状态展示与安全上限。 |
+| **硬截止（hard deadline）** | `target + grace`，运行允许的最长墙钟时间；超过即进入终态 `exhausted`。 |
 | **检查轮次（round）** | 插件注入一次检查提示词即一轮；同一轮内因未响应而重发只增加 `attempt`，不增加轮次。 |
 | **达标（pass）** | 该轮 `post` 的置信率 `confidence >= gate`。 |
 | **连续达标（streak）** | 自上次 `reset` 起，连续达标且已计分的轮次数。 |
-| **收敛（converged）** | 正常成功终态：`now >= deadline` 且 `streak >= required`。 |
+| **收敛（converged）** | 正常成功终态：`streak >= required`（不要求到达计划时刻）。 |
+| **Kickoff（启动提示）** | 首轮检查之前，若模型还没实际执行任务，插件发一次性的、不计轮次的「开始执行任务」提示。 |
 | **检查消息（check message）** | 插件注入的 user 角色消息，`source.kind = plugin:dsh-plugin-endurance`，携带 `enduranceId/round/attempt`。 |
-| **状态尾注（footer）** | 插件在渲染后的模板末尾追加的、由插件生成的判定说明（时间门槛、轮次、连续达标数）。 |
+| **状态尾注（footer）** | 插件在渲染后的模板末尾追加的、由插件生成的判定说明（轮次、连续达标数、计划进度）。 |
 
 ---
 
@@ -67,43 +67,47 @@
 模型：理解提示词 → 生成 check_prompt 模板
 模型：调用 task_endurance_set(duration="8h", min_consecutive_passes=3,
                               confidence_gate=85, check_prompt="现在是第 $endurance_id 轮检查……")
-  │        ← 返回运行 id、deadline、门槛；落一条 plugin record（armed）
-模型：正常推进任务（读文件、改代码、跑测试……），结束回合
+  │        ← 返回运行 id、计划时刻、门槛；落一条 plugin record（armed）
+模型：在同一回合内继续完整执行任务（工具调用、编辑、测试……），结束回合
   │
 agent/status → idle
   │
-插件：评估结束条件
-  ├─ 未到点 / 未收敛 → 渲染第 1 轮检查消息 → agent.followup(check message)
+插件：评估首轮条件
+  ├─ set 之后已实际执行过任务 → 注入第 1 轮检查
+  └─ 本回合只是规划/没有实际执行 → 先发一次 kickoff 提示，等下一回合再检查
   │
 模型：收到检查 → 核验任务
   ├─ 任务未完成   → task_endurance_reset(reason)        → streak 清零，继续
   └─ 有把握完成   → task_endurance_post(confidence, …)  → 达标则 streak+1
   │
-插件：更新状态、落记录；回合结束后按节奏注入下一轮
+插件：更新状态、落记录；达标后按节奏注入下一轮
   │
-……（循环，可能跨越数小时，期间可被用户消息或 goal 轮次打断/让位）……
+……（循环，期间可被用户消息或 goal 轮次打断/让位）……
   │
-到点（deadline）且连续 3 轮 ≥85% → converged → 停止注入，留下终态记录
+连续 3 轮 ≥85% → converged → 停止注入，留下终态记录
+  （若到计划时刻仍未达标，则继续核验，直到达标或安全上限）
 ```
 
 补充规则：
 
-- 第 1 轮检查在 `set` 所在回合结束、会话空闲后注入；`set` 本身不立即触发检查。
-- 到点时若 `streak` 已满足，插件**直接收敛**（不需要额外再检查一轮），由 deadline 定时器兜底。
-- 到点时若 `streak` 未满足，继续按「未达标」节奏注入，直到达标或触达硬截止/轮次上限。
+- 首轮检查在**模型完成一个任务回合之后**注入；`set` 本身不立即触发检查。
+- 没有任何 "等待到计划时刻才收敛" 的规则——连续达标立即结束。
+- 计划时刻只在派生节奏与状态提示里出现；`target` 之后仍未达标时进入 `overrunning`，继续核验。
 
 ---
 
 ## 5. 核心语义
 
-### 5.1 时长语义：下限，不是预算
+### 5.1 时长语义：计划参考
 
 - `created_at` = `task_endurance_set` 成功写入的时刻（墙钟）。
-- `deadline = created_at + duration`；`hard_deadline = deadline + grace`。
-- **到达 deadline 之前，插件不会因 `streak` 满足而收敛。** 剩余时间用于：
-  - 继续注入检查（已达标时按 soak 节奏），促使模型深化、加固、补证据；
-  - 让模型在两轮检查之间继续实际工作（模型在检查回合里可继续使用工具）。
-- 用户中止、取消、达到安全上限是仅有的提前退出途径。
+- `target = created_at + duration`：用户声明的「计划跑多久」，用于：
+  - 推导检查节奏（§5.5）；
+  - 状态展示（已用时长、剩余、是否超计划）；
+  - 推导安全上限 `hard_deadline = target + grace`。
+- **时长不参与收敛判定**。收敛只看连续达标（§5.3）。
+- 到达 `target` 仍未收敛：进入 `overrunning`，继续检查；到达 `hard_deadline` 仍未收敛 → `exhausted`。
+- 用户中止、取消、达到安全上限是提前退出途径。
 - 时钟使用墙钟：机器休眠/宿主暂停期间时间照常流逝；恢复后按当前时刻重新评估。
 
 ### 5.2 检查轮次
@@ -112,6 +116,7 @@ agent/status → idle
 - 注入后模型所在回合结束仍未调用 `post` / `reset`：视为「本轮未响应」，`attempt += 1`，重发**同一轮**（`$endurance_id` 不变），并在状态尾注中提示「上一轮检查未收到汇报」。
 - `attempt` 达到 `maxUnansweredPrompts`（默认 3）→ 终态 `stalled`。
 - 轮次总数（含重发）不超过 `maxChecks`（默认 100）→ 终态 `exhausted`。
+- Kickoff 消息不计入轮次。
 
 ### 5.3 达标、连续计数与收敛
 
@@ -120,11 +125,12 @@ agent/status → idle
   - `pass` → `streak += 1`；
   - `!pass` → `streak = 0`；
   - `reset` → `streak = 0`，该轮不计分。
-- 收敛判定（任一次状态变化或定时器触发时求值）：
+- 收敛判定（每次 `post` / `reset` / 回合结束求值）：
   ```
-  converged ⇔ now >= deadline ∧ streak >= min_consecutive_passes
+  converged ⇔ streak >= min_consecutive_passes
   ```
-- 注意：达标之后继续 soak 检查时，若某轮置信率掉到门槛以下，`streak` 归零，需要重新累计 N 轮 —— 这是有意设计（后期发现新问题应阻止收敛）。
+- 一旦收敛，立即停止注入；即使此时远早于计划时刻（用户确认「达标即结束」）。
+- 注意：达标之后按节奏继续检查时，若某轮置信率掉到门槛以下，`streak` 归零，需要重新累计 N 轮 —— 这是有意设计（后期发现新问题应阻止收敛）。
 
 ### 5.4 幂等与防伪
 
@@ -138,14 +144,15 @@ agent/status → idle
 
 | 情形 | 下一轮检查时机 |
 |---|---|
-| `armed` 后首轮 | 本回合结束、会话空闲后立即（受 `minCheckGap` 约束） |
+| `armed` 后首轮 | 模型完成一个任务回合、会话空闲后注入（见 §9.2 首轮判定） |
 | 未达标（`!pass`）或 `reset` 后 | 空闲后尽快（eager），让模型继续干活 |
-| 已达标但未到 deadline | soak：距上次检查至少 `soakGap`（默认 `clamp(duration/(2N), 5m, 30m)`） |
-| 到点且 `streak >= N` | 立即收敛，不再注入 |
-| 到点且 `streak < N` | eager 继续，直到达标或硬截止 |
-| 硬截止 / 轮次上限 | 不再注入；可选注入一次收尾提示后终态 |
+| 达标（`pass`）后 | soak：距上次检查至少 `soakGap`，默认 `clamp(duration / N, 5m, 2h)` |
+| 已收敛 | 立即停止，不再注入 |
+| 到硬截止 / 轮次上限 | 不再注入；可选注入一次收尾提示后终态 |
 
-soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的自我确认循环，同时给实际深化工作留出时间窗口。
+soak 的意义：避免模型「每轮秒回 90%」在几分钟内刷满 N 轮、让检查失去意义；用计划时长把「通过后的复查」摊开，给实际深化与验证留时间窗口。
+
+示例：计划 8h、N=3 → `soakGap = clamp(8h/3, 5m, 2h) = 2h`。若模型在第 1 轮就通过（记为 1/3），插件约 2 小时后再检查第 2 轮；若仍通过（2/3），再约 2 小时检查第 3 轮；第 3 轮通过即收敛（约在 4 小时后），不会等到 8h 的计划时刻。若中途任一回复 `reset` 或置信率低于门槛，streak 归零，按 eager 节奏继续。
 
 ---
 
@@ -155,22 +162,25 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
 
 | 状态 | 是否终态 | 含义 |
 |---|---|---|
-| `armed` | 否 | 已登记，尚未注入第一轮检查。 |
-| `running` | 否 | 循环进行中（含未达标、已达标 soak、到点未达标三种子情形，由派生标志区分）。 |
-| `converged` | 是 | 正常成功：到点且连续达标。 |
+| `armed` | 否 | 已登记，尚未注入第一轮检查（可能已发过 kickoff）。 |
+| `running` | 否 | 循环进行中（未达标、达标等待复查、超计划继续核验，由派生标志区分）。 |
+| `converged` | 是 | 正常成功：连续 N 轮达标。 |
 | `cancelled` | 是 | 用户要求取消。 |
 | `exhausted` | 是 | 达到硬截止/轮次上限仍未收敛。 |
 | `stalled` | 是 | 连续多轮检查未收到 post/reset（模型不配合或反复失败）。 |
 
-派生标志（随每次工具返回与状态查询给出）：`time_gate_met`、`gate_met`（`streak >= N`）、`can_conclude`、`pending_round`、`paused`。
+派生标志（随每次工具返回与状态查询给出）：`gate_met`（`streak >= N`）、`can_conclude`、`pending_round`、`paused`、`overrunning`（`now > target`）、`first_check`（`pending` / `kickoff_sent` / `started`）。
 
 ### 6.2 转换
 
 | 当前 | 触发 | 条件 | 动作 | 下一状态 |
 |---|---|---|---|---|
-| — | `set` | 无活动运行；校验通过；直接人类回合 | 写 record（run）、计算 deadline | `armed` |
-| `armed` | 回合结束（idle） | 未暂停、无竞争入站消息 | 注入第 1 轮 | `running` |
-| `running` | `post` 计分 | `pass` | `streak += 1` | `running` 或 `converged`（到点且达标） |
+| — | `set` | 无活动运行；校验通过；直接人类回合 | 写 record（run）、计算 target 与安全上限 | `armed` |
+| `armed` | 回合结束（idle） | 未暂停、无竞争入站消息；已有任务工作证据 | 注入第 1 轮 | `running` |
+| `armed` | 回合结束（idle） | 未暂停；尚无工作证据且未发过 kickoff | 发送 kickoff（不计轮） | `armed` |
+| `armed` | kickoff 回合结束 | — | 注入第 1 轮（不再要求工作证据） | `running` |
+| `running` | `post` 计分 | `pass` 且 `streak >= N` | 记录收敛 | `converged` |
+| `running` | `post` 计分 | `pass` 且 `streak < N` | `streak += 1`，安排 soak 复查 | `running` |
 | `running` | `post` 计分 | `!pass` | `streak = 0` | `running` |
 | `running` | `reset` | 匹配检查回合 | 回退该轮、`streak = 0` | `running` |
 | `running` | 回合结束 | 本轮未响应，`attempt < max` | 重发同轮 | `running` |
@@ -195,7 +205,7 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
 
 | 字段 | 类型 | 必填 | 约束 | 说明 |
 |---|---|---|---|---|
-| `duration` | string | 是 | `^\d+(\.\d+)?\s*[mhd]$`，1m ≤ d ≤ 24h（默认上限可配） | 最短墙钟时长，如 `8h`、`90m`、`1d`。 |
+| `duration` | string | 是 | `^\d+(\.\d+)?\s*[mhd]$`，1m ≤ d ≤ 24h（默认上限可配） | 计划时长（参考值），如 `8h`、`90m`、`1d`。 |
 | `min_consecutive_passes` | integer | 是 | 1 ≤ N ≤ 20 | 连续达标轮数。 |
 | `confidence_gate` | number | 是 | 0 ≤ G ≤ 100 | 达标置信率（百分比），如 `85`。 |
 | `check_prompt` | string | 是 | 20 ≤ 长度 ≤ 8000 | 每轮检查提示词模板，支持 `$endurance_*` 占位符（见 §8）。 |
@@ -210,7 +220,7 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
     "status": "armed",
     "duration_ms": 28800000,
     "created_at": "2026-11-17T23:00:00+08:00",
-    "deadline_at": "2026-11-18T07:00:00+08:00",
+    "target_at": "2026-11-18T07:00:00+08:00",
     "hard_deadline_at": "2026-11-18T09:00:00+08:00",
     "min_consecutive_passes": 3,
     "confidence_gate": 85,
@@ -218,7 +228,7 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
     "rounds_injected": 0,
     "max_checks": 100
   },
-  "message": "Endurance armed. The first check runs after this turn ends. Keep working on the task until then."
+  "message": "Endurance armed. Finish one full task round first; the first check is injected automatically after this turn. Duration is a planning reference: the run ends as soon as consecutive passes reach 3."
 }
 ```
 
@@ -248,19 +258,21 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
   "streak": 2,
   "streak_required": 3,
   "round": 4,
-  "time_gate_met": false,
   "gate_met": false,
   "can_conclude": false,
-  "deadline_at": "2026-11-18T07:00:00+08:00",
-  "remaining_ms": 15120000,
-  "next_check_after_ms": 1800000,
-  "message": "Round 4 recorded (86 ≥ 85). 2/3 consecutive passes. Duration not reached; the run will continue."
+  "target_at": "2026-11-18T07:00:00+08:00",
+  "elapsed_ms": 13680000,
+  "overrunning": false,
+  "remaining_to_target_ms": 15120000,
+  "next_check_after_ms": 7200000,
+  "message": "Round 4 recorded (86 ≥ 85). 2/3 consecutive passes; one more passing round ends the run."
 }
 ```
 
 - `can_conclude: true`：本轮使运行收敛，不再有检查注入；模型应在当前回合给出最终产物说明。
 - 同轮重复调用：`counted: false`，`streak` 不变，附提示。
-- `time_gate_met: true && streak < N`：提示「时长已满，还需连续 N 轮达标」。
+- `overrunning: true`：已超过计划时刻，仍在继续核验；提示模型不必为超时焦虑，但也不得虚报。
+- `next_check_after_ms`：本轮通过时的 soak 间隔；未通过时为 `0`（eager）。
 
 **错误**：`ENDURANCE_NOT_ACTIVE`、`ENDURANCE_NOT_A_CHECK_ROUND`（当前回合不是匹配检查回合）、`ENDURANCE_INVALID_PARAMS`。
 
@@ -338,9 +350,9 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
 | `$endurance_total_count` | 需要的连续达标轮数 | `3` |
 | `$endurance_gate` | 门槛（含百分号） | `85%` |
 | `$endurance_streak` | 当前连续达标数 | `1` |
-| `$endurance_deadline` | 截止时刻（本地时间 + 时区） | `2026-11-18 07:00 (Asia/Hong_Kong)` |
-| `$endurance_remaining` | 距截止剩余 | `4h 12m`（到点后为 `0m`） |
-| `$endurance_duration` | 总时长 | `8h` |
+| `$endurance_deadline` | 计划结束时刻（本地时间 + 时区） | `2026-11-18 07:00 (Asia/Hong_Kong)` |
+| `$endurance_remaining` | 距计划时刻剩余（超计划后为 `0m`） | `4h 12m` |
+| `$endurance_duration` | 计划时长 | `8h` |
 | `$endurance_round_attempt` | 本轮的注入次数（1 起） | `1` |
 | `$endurance_checks_left` | 剩余可用轮次 | `96` |
 | `$endurance_started_at` | 开始时刻 | `2026-11-17 23:00` |
@@ -356,31 +368,31 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
 
 每次注入在模板渲染结果后追加一段由插件生成的状态说明（默认开启，可由配置关闭）。语言跟随模板：模板含 CJK 时用中文，否则英文；也可由配置强制。
 
-**到点前、未达标时：**
+**常规检查（未收敛、未超计划）：**
 
 ```text
 ---
-【续航 · 第 3 轮】连续达标 1/3（门槛 85%）· 截止 2026-11-18 07:00（剩余 4h 12m）
-【规则】时长未满前不会结束；即使置信率已达标，也请把时间用于深化、加固与补充证据。
-【行动】完成核验后调用 task_endurance_post 汇报置信率；若任务仍未完成，调用 task_endurance_reset 继续。
+【续航 · 第 3 轮】连续达标 1/3（门槛 85%）· 计划 8h（已用 2h10m / 剩余 5h50m）
+【规则】连续 3 轮 ≥85% 即结束；若任务仍未完成，请调用 task_endurance_reset 继续。
+【行动】完成核验后调用 task_endurance_post 汇报置信率。
 ```
 
-**已达标、但未到点时：**
+**已超过计划时刻、仍未收敛：**
 
 ```text
-【规则】核验门槛已满足，但续航未满（剩余 4h 12m）。请继续深化与加固，并在下一轮检查时重新评估；不要提前声明最终完成。
+【状态】已超过计划时长 1h20m（安全上限还剩 2h40m）；继续核验，直到连续 3 轮 ≥85% 或到达安全上限。
 ```
 
-**到点后仍未达标时：**
-
-```text
-【规则】续航时长已满，还需连续 3 轮 ≥85% 才能结束。请如实汇报置信率；未完成则 reset 继续。
-```
-
-**本轮是重发（上一轮未收到 post/reset）时：**
+**本轮是重发（上一轮未收到 post/reset）：**
 
 ```text
 【提醒】上一轮检查未收到 task_endurance_post 或 task_endurance_reset。本轮请务必用工具调用给出结论。
+```
+
+**Kickoff（首轮检查前的一次性提示，不计轮次）：**
+
+```text
+【续航】续航已登记（计划 8h，连续 3 轮 ≥85% 收敛）。请先完整执行一个任务回合：继续用工具推进任务，完成一轮后再汇报；在收到检查提示前不要声明最终完成。
 ```
 
 ### 8.3 渲染示例（用户给出的模板 + 第 3 轮）
@@ -391,8 +403,8 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
 汇报置信率方式为工具调用：task_endurance_post ...，若你认为任务仍未完成尚需继续，请调用：task_endurance_reset
 
 ---
-【续航 · 第 3 轮】连续达标 1/3（门槛 85%）· 截止 2026-11-18 07:00（剩余 4h 12m）
-【规则】时长未满前不会结束；……
+【续航 · 第 3 轮】连续达标 1/3（门槛 85%）· 计划 8h（已用 2h10m / 剩余 5h50m）
+【规则】连续 3 轮 ≥85% 即结束；若任务仍未完成，请调用 task_endurance_reset 继续。
 ```
 
 模板与尾注可能重复「连续 N 轮」的描述，这是可接受的冗余：尾注是权威判定，模板是模型自己的检查语。
@@ -408,7 +420,7 @@ soak 的意义：避免模型「每轮秒回 90%」把 8h 变成几十分钟的�
 | `agent/status` → `idle` | 主触发：回合结束且会话空闲时评估并注入。 |
 | `agent/inbox/inserted` | 跟踪竞争入站消息（真人/schedule/goal 等），避免注入插队。 |
 | `goal/changed` | goal 进入或离开活动轮次时暂停/恢复注入。 |
-| 定时器 | soak 间隔、deadline 收敛、hard deadline 收尾。 |
+| 定时器 | soak 复查间隔、硬截止收尾。 |
 | 工具调用 | `post`/`reset`/`cancel` 同步更新状态，可能立即收敛。 |
 | `agent/created`（resume） | 从会话日志恢复运行并对空闲会话恢复驱动。 |
 | 插件加载 | 对于已存在的活跃会话，重新挂载驱动（不要求重启 DSH）。 |
@@ -422,14 +434,16 @@ onTurnSettled(agent):
   run = stateOf(agent.session)
   if run == null or run.terminal: return
   if paused(run) or goalDriving(agent) or competingHumanMessage(agent): return
+  if run.status == 'armed':
+      if run.firstCheck == 'kickoff_sent' or workedSinceSet(agent):
+          inject(run, round=1); return
+      sendKickoff(run); return                 # 一次性，不计轮次
   if run.pendingRound != null:                # 检查消息已被消费但无 post/reset
-     run.attempt += 1
-     if run.attempt > maxUnansweredPrompts: settle('stalled'); return
-     inject(run, sameRound, attempt, reminder=true); return
-  if run.status == 'armed': inject(run, round=1); return
-  if convergedByTime(run): settle('converged'); return
+      run.attempt += 1
+      if run.attempt > maxUnansweredPrompts: settle('stalled'); return
+      inject(run, sameRound, attempt, reminder=true); return
   if exhausted(run): settle('exhausted'); return
-  injectDelay = cadence(run)                  # eager: 0；soak: 剩余间隔
+  injectDelay = cadence(run)                  # pass 后 soak；reset/未通过后 eager
   schedule(run, injectDelay)
 ```
 
@@ -445,13 +459,15 @@ inject(run, round, attempt):
   agent.followup(msg)                         # 唤醒一个独立的检查回合
 ```
 
+**首轮判定（`workedSinceSet`）**：从会话日志中找到 `task_endurance_set` 的调用事件，统计其之后是否出现至少一次**非 endurance 工具**的 `tool/result`（任务确实被执行过，而不是只做了规划）。是 → 直接注入第 1 轮；否 → 发一次 kickoff，等 kickoff 回合结束后**无论证据如何**都注入第 1 轮，避免空转。
+
 结束评估（按优先级）：
 
 ```text
-1. now >= deadline && streak >= N  → converged
+1. streak >= N                       → converged
 2. checks >= maxChecks 或 now >= hardDeadline → exhausted（可选注入一次收尾提示）
-3. 未响应次数超限                   → stalled
-4. 否则继续注入
+3. 未响应次数超限                     → stalled
+4. 否则按 cadence 继续注入
 ```
 
 ### 9.3 并发与幂等
@@ -472,7 +488,7 @@ inject(run, round, attempt):
 
 - 若会话存在 `goal` 且处于 `active + armed`（goal-round-driver 正在续跑）：**暂停 endurance 注入**。goal 完成/暂停/解除武装后，在下一个 idle 恢复。
 - 理由：goal 自身的轮次已经在驱动会话；同时注入会让每个回合收到两条自动消息，浪费 token 且语义冲突。
-- goal 完成时的收敛判定不受影响：endurance 的时间门槛与 streak 仍按自己的节奏计算（goal 期间没有检查则不产生 post，属于预期）。
+- goal 期间不产生 endurance 检查轮次，streak 不变；恢复后继续按自己的节奏推进。
 
 ### 9.6 子代理
 
@@ -495,7 +511,7 @@ inject(run, round, attempt):
 
 | 终态 | 触发 | 记录内容 | 后续行为 |
 |---|---|---|---|
-| `converged` | 到点 + 连续达标 | 结束时刻、最终 streak、最后一轮 | 停止注入；客户端 M2 显示成功状态 |
+| `converged` | 连续 N 轮达标（不要求到点） | 结束时刻、最终 streak、最后一轮 | 停止注入；客户端 M2 显示成功状态 |
 | `cancelled` | 用户在对话中明确取消 | 取消原因、取消时刻 | 停止；用户可重新 `set` |
 | `exhausted` | 硬截止 / 轮次上限 | 原因、最后置信率、未解决项 | 可选注入 1 次收尾提示（要求模型给出当前产物与未完成清单），然后停止 |
 | `stalled` | 连续未响应超限 | 未响应轮次、最近错误 | 停止并落记录；不无限重发 |
@@ -512,15 +528,15 @@ inject(run, round, attempt):
 
 | 限制 | 默认值 | 说明 |
 |---|---|---|
-| 时长下限 | 1m | 低于此值拒绝 |
-| 时长上限 | 24h | 可通过配置放宽；夜间场景足够 |
+| 计划时长下限 | 1m | 低于此值拒绝 |
+| 计划时长上限 | 24h | 可通过配置放宽；夜间场景足够 |
 | 连续轮数上限 | 20 | 越大收敛越保守，token 越多 |
 | 置信率门槛 | 0–100 | 85 为建议值 |
-| 宽限期 grace | `clamp(25% × duration, 30m, 4h)` | 到点未达标时的追加窗口 |
+| 宽限期 grace | `clamp(25% × duration, 30m, 4h)` | 计划时刻之后允许继续核验的窗口；超过即硬截止 |
 | 最大检查轮次 | 100 | 含重发 |
 | 未响应重发上限 | 3 | 每轮内 |
 | 检查最小间隔 | 30s | 防紧密循环 |
-| soak 间隔 | `clamp(duration/(2N), 5m, 30m)` | 已达标但未到点时 |
+| soak 复查间隔 | `clamp(duration / N, 5m, 2h)` | 仅在「通过」后使用；reset/未通过为 eager |
 
 ---
 
@@ -549,12 +565,13 @@ plugin:dsh-plugin-endurance/state
   "sessionId": "...",
   "status": "running",
   "createdAt": 1763382000000,
-  "deadlineAt": 1763410800000,
+  "targetAt": 1763410800000,
   "hardDeadlineAt": 1763418000000,
   "durationMs": 28800000,
   "gate": 85,
   "streakRequired": 3,
   "checkPrompt": "现在是第 $endurance_id 轮检查……",
+  "firstCheck": "started",
   "round": 3,
   "attempt": 1,
   "streak": 1,
@@ -572,14 +589,15 @@ plugin:dsh-plugin-endurance/state
 }
 ```
 
+- `firstCheck`：`pending` / `kickoff_sent` / `started`，用于恢复首轮判定。
 - `toolNames` 保留写入方版本信息，便于未来改名兼容。
 - 历史只保留最近 50 条轮次记录（导出给 `status` 时同样截断）。
 
 ### 11.3 恢复与投影
 
 - 恢复：从会话事件中筛出 `type` 匹配且 `ignorable` 的记录，取最后一条合法快照；校验 `schemaVersion` 与必填字段。失败则视为无运行。
-- M2 客户端：注册 session projection（key `endurance`），由 plugin record 折叠出只读视图（状态、剩余时间、streak、最近轮次），供会话流状态行/设置页使用；`wire` 只暴露客户端所需字段。
-- 记录只在状态变化时追加（set/inject/post/reset/settle），不会每轮写多份。
+- M2 客户端：注册 session projection（key `endurance`），由 plugin record 折叠出只读视图（状态、计划进度、streak、最近轮次），供会话流状态行/设置页使用；`wire` 只暴露客户端所需字段。
+- 记录只在状态变化时追加（set/kickoff/inject/post/reset/settle），不会每轮写多份。
 
 ### 11.4 版本与清理
 
@@ -595,11 +613,11 @@ v0.1 使用宿主 profile 的 `cordis.patch.yml` 配置，读取时钳制越界�
 | 配置键 | 默认值 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 总开关；关闭时仍注册工具但 `set` 返回禁用错误。 |
-| `maxDurationHours` | `24` | `set` 的时长上限。 |
+| `maxDurationHours` | `24` | `set` 的计划时长上限。 |
 | `maxChecks` | `100` | 每次运行的最大注入轮次。 |
 | `maxUnansweredPrompts` | `3` | 每轮未响应重发上限。 |
 | `minCheckGapMs` | `30000` | 两次注入最小间隔。 |
-| `soakGapMinMs` / `soakGapMaxMs` | `300000` / `1800000` | soak 间隔钳制区间。 |
+| `soakGapMinMs` / `soakGapMaxMs` | `300000` / `7200000` | soak 复查间隔钳制区间。 |
 | `abortCooldownMs` | `600000` | 用户中止后的冷却。 |
 | `injectFooter` | `true` | 是否追加状态尾注。 |
 | `footerLocale` | `auto` | `auto` / `zh` / `en`。 |
@@ -623,10 +641,10 @@ dsh-plugin-endurance/
 │   ├── config.js                # readOptions + 钳制
 │   ├── domain/
 │   │   ├── state.js             # 纯状态机与派生标志
-│   │   ├── prompt.js            # 模板校验、占位符渲染、尾注
+│   │   ├── prompt.js            # 模板校验、占位符渲染、尾注、kickoff 文案
 │   │   └── limits.js            # 上限派生（grace、soak、maxChecks）
 │   ├── service.js               # 运行注册表、持久化、状态迁移
-│   ├── driver.js                # idle/timer 调度、注入、竞态防护
+│   ├── driver.js                # idle/timer 调度、首轮判定、注入、竞态防护
 │   ├── authority.js             # 人类回合 / 检查回合判定
 │   └── tools.js                 # 5 个工具定义
 ├── client.js                    # M2：状态行 / 命令 / 设置
@@ -656,11 +674,11 @@ dsh-plugin-endurance/
 | 契约 | 位置（DSH 源码） | 用途 |
 |---|---|---|
 | `agent.followup(message)`、`agent/status`、`agent/inbox/inserted`、`agent/turn-stopping` | `packages/core/agent` | 注入检查回合、感知 idle 与竞争消息 |
-| `agents.roots()`、`agents.get()`、`agents.turnBoundaryOf()`、`agents.withoutInitiator()` | `packages/core/agent` | 权限判定、liveness、回合边界 |
-| `createUserMessage`、`MessageSourceMap` 合并扩展 | `packages/llm/llm` | 构造检查消息、声明 `plugin:dsh-plugin-endurance` 来源 |
+| `agents.roots()`、`agents.get()`、`agents.list()`、`agents.turnBoundaryOf()`、`agents.withoutInitiator()` | `packages/core/agent` | 权限判定、liveness、回合边界、加载时重挂 |
+| `createUserMessage`、`MessageSourceMap` 合并扩展 | `packages/llm/llm` | 构造检查/kickoff 消息、声明 `plugin:dsh-plugin-endurance` 来源 |
 | `defineTool`、`ctx.tools.register` | `packages/interaction` / `packages/core/tools` | 工具注册与 output/render |
 | `ctx.sessions.flush` | `packages/core/session` | 注入后的持久化确认（fail-closed） |
-| `ctx.timeout`（Cordis timer） | `vendor/timer` | soak/deadline 定时，随 fiber 清理 |
+| `ctx.timeout`（Cordis timer） | `vendor/timer` | soak/硬截止定时，随 fiber 清理 |
 | `appendPluginRecord`、`pluginRecordOf`、`SessionEventMap` | `packages/core/session` | 持久化运行状态 |
 | `ctx.sessionProjections.register` | `packages/session/session-projection` | M2 客户端投影 |
 | goal round driver 的 fencing/合并模式 | `packages/goal/goal-round-driver` | 调度实现参照 |
@@ -669,19 +687,22 @@ dsh-plugin-endurance/
 ### 13.4 模块职责
 
 - `service.js`：内存运行注册表（sessionId → run），状态迁移唯一入口；所有迁移先落 record 再更新内存；提供 `get/ensure/transition`。
-- `driver.js`：监听 agent 事件与定时器；持有串行队列；调用 `authority` 与 `prompt`，执行注入；不直接改状态字段，统一走 `service.transition`。
+- `driver.js`：监听 agent 事件与定时器；持有串行队列；调用 `authority` 与 `prompt`，执行首轮判定、kickoff 与注入；不直接改状态字段，统一走 `service.transition`。
 - `domain/state.js`：纯函数；输入快照 + 事件，输出新快照/派生标志；100% 单测覆盖。
 - `tools.js`：参数校验 → 授权 → 调 service → 返回视图；把 `HarnessError` 交给框架转成模型可见错误。
-- `prompt.js`：占位符白名单与渲染；尾注三种变体；模板静态校验。
+- `prompt.js`：占位符白名单与渲染；尾注三种变体；kickoff 文案；模板静态校验。
 - `authority.js`：读取开放回合事件（`agents.turnBoundaryOf` + session 快照）判定直接人类输入 / 匹配检查消息，逻辑与 goal 工具同构。
 
 ---
 
 ## 14. 客户端呈现（M2）
 
-- **检查回合行**：检查消息（`source.kind = plugin:dsh-plugin-endurance`）在会话流里渲染为一条可折叠的「续航检查 · 第 N 轮」行，展开显示门槛、streak、剩余时间；区别于真人消息。
-- **状态条**：会话顶部/输入区显示 `⏳ 续航 3/8h · 连续达标 1/3 · 85%`；`converged` 后变为完成态，`exhausted/stalled/cancelled` 显示对应颜色与原因。
-- **命令**（M2）：`/endurance status`、`/endurance stop`、`/endurance extend <duration>`（是否做 extend 另行确认）。
+- **检查回合行**：检查消息（`source.kind = plugin:dsh-plugin-endurance`）在会话流里渲染为一条可折叠的「续航检查 · 第 N 轮」行，展开显示门槛、streak、计划进度；区别于真人消息。
+- **状态条**：会话顶部/输入区显示 `⏳ 续航 2/8h · 连续达标 1/3 · 85%`；`converged` 后变为完成态，`exhausted/stalled/cancelled` 显示对应颜色与原因。
+- **命令**（M2）：
+  - `/endurance status`：查看当前运行（无运行返回提示）。
+  - `/endurance stop`：等价于带人类授权的 `cancel`。
+  - `/endurance extend <duration>`：追加计划时长（更新 target 与安全上限，不重置 streak）。
 - **设置页**：若配置改为 schemastery schema，可自动生成表单；否则 M2 先只读展示。
 - 技术路径：host 注册 `endurance` session projection（§11.3），client 通过 `useProjection('endurance')` 取状态；检查行通过 conversation definition 按记录/来源渲染。
 
@@ -694,24 +715,28 @@ dsh-plugin-endurance/
 - 时长解析：`8h` / `90m` / `1d` / `0.5h` / 越界 / 非法格式。
 - 占位符渲染：全部变量、`$$` 转义、未知变量、CJK/英文尾注选择。
 - 上限派生：grace、soakGap、maxChecks 的钳制。
-- 状态机：全部转换（含 post 同轮去重、reset 回退、到点收敛、到点不达标继续、硬截止、stalled）。
+- 状态机：全部转换（含 post 同轮去重、reset 回退、达标立即收敛、超计划继续、硬截止、stalled、kickoff）。
 - 授权判定：直接人类回合、检查回合匹配、非检查回合拒绝、root/子代理。
+- 首轮判定：set 后有任务工具调用 → 直接检查；否则 kickoff 一次。
 
 ### 15.2 集成（伪造 Agent/Session + 真实纯函数）
 
-- 回合结束 → 注入第 1 轮；检查回合 post → streak 累计；到点 → 收敛。
+- 回合结束 → 首轮判定 → 注入/ kickoff。
+- 检查回合 post → streak 累计；达到 N → 立即收敛（不等计划时刻）。
 - 用户消息插队 → 不注入；用户回合结束后恢复。
 - goal 活动 → 暂停；goal 结束 → 恢复。
 - 未响应 → 同轮重发 max 次 → stalled。
-- 插件重载 → 从 plugin record 恢复状态。
+- 插件重载 → 从 plugin record 恢复状态（含 firstCheck）。
 
 ### 15.3 端到端（本地 DSH Web/headless）
 
 | 场景 | 预期 |
 |---|---|
-| 2 分钟 / 2 轮 / 80% 的短任务：模型首轮就报 95% | 不提前收敛；到点后连续 2 轮 ≥80% 才结束 |
+| 短任务（计划 10m / 2 轮 / 80%），模型首轮就报 95% | 不立即结束；通过第 2 轮（按 soak）后收敛，远早于计划时刻 |
+| 计划 8h，模型第 1 轮就通过、之后持续通过 | 约每 2h 复查一次，连续 3 轮达标后收敛（约 4h），不等到 8h |
+| 模型首轮只做规划、结束回合 | 先收到一次 kickoff，执行一个任务回合后才开始检查 |
 | 模型只 reset 不 post | 持续注入直到上限，终态 `stalled` |
-| 任务 8h 内自然完成，置信率波动 | 掉到门槛以下时 streak 归零，重新累计 |
+| 计划时刻过了仍未达标 | 进入 `overrunning`，继续检查直到达标或硬截止 |
 | 检查回合中用户发消息 | 不插队；用户回合后恢复 |
 | DSH 重启 | 运行从日志恢复；不重复计数 |
 | 用户在对话中要求停止 | `cancel` 成功，不再注入 |
@@ -719,13 +744,13 @@ dsh-plugin-endurance/
 ### 15.4 验收清单（对应 issue #1）
 
 - [ ] 5 个工具契约与 JSON Schema 在文档定稿。
-- [ ] 时长下限语义、连续计数、reset 语义、post 幂等均有明确规则。
+- [ ] 计划时长语义（参考值）、达标即收敛、连续计数、reset 语义、post 幂等均有明确规则。
 - [ ] 占位符与尾注规则定稿，含渲染 fixture。
-- [ ] 注入调度（idle、竞态、用户介入、goal、重启）定稿。
+- [ ] 注入调度（首轮判定、kickoff、idle、竞态、用户介入、goal、重启）定稿。
 - [ ] 安全上限与终态表定稿。
 - [ ] 持久化记录结构定稿。
 - [ ] 测试计划覆盖上述规则。
-- [ ] 用户确认 §18 开放问题。
+- [ ] 用户确认 §18 待确认项。
 
 ---
 
@@ -734,8 +759,8 @@ dsh-plugin-endurance/
 | 里程碑 | 内容 | 交付 |
 |---|---|---|
 | M0 设计（本 issue） | 本文档评审通过 | PR |
-| M1 Host MVP | 模块骨架、宿主模块桥、状态机、5 工具、注入驱动、持久化、单测 | 可在本地 profile 启用并跑通短场景 |
-| M2 客户端 | 检查行、状态条、命令、投影 | 可视化与用户控制 |
+| M1 Host MVP | 模块骨架、宿主模块桥、状态机、5 工具、首轮判定/kickoff、注入驱动、持久化、单测 | 可在本地 profile 启用并跑通短场景 |
+| M2 客户端 | 检查行、状态条、`/endurance status|stop|extend`、投影 | 可视化与用户控制 |
 | M3 发布 | README、banner、CHANGELOG、release 流程 | 可安装版本 |
 
 ---
@@ -744,10 +769,10 @@ dsh-plugin-endurance/
 
 | # | 决策 | 理由 |
 |---|---|---|
-| D1 | 时长是**下限**：到点前即使达标也不收敛 | 插件的目的就是防止提前收尾；剩余时间用于深化核验 |
+| D1 | 时长是**计划参考**，不参与收敛判定（用户确认） | 用计划时长推导检查节奏与安全上限；任务提前达标就应该结束 |
 | D2 | 同一会话同时最多一个活动运行；终态后可重新 `set` | 状态简单、可审计；避免多个循环互相插队 |
 | D3 | 「轮次」= 注入次数；每轮最多计一次 post；reset 清零 | 防刷、可重放、与注入消息一一对应 |
-| D4 | 收敛 = 到点 ∧ 连续达标；到点未达标则继续到硬上限 | 同时表达「跑够时间」与「确定满足要求」 |
+| D4 | 收敛 = 连续 N 轮达标（用户确认「达标即结束」） | 结束看核验证据，不看时钟 |
 | D5 | 检查提示词由模型生成，插件只做插值与尾注 | 检查内容依赖具体任务；插件不应假装理解业务 |
 | D6 | 注入用 `agent.followup(source=plugin:...)`，在 idle 时发生 | 复用宿主既有续跑机制；不与进行中的回合竞争 |
 | D7 | post/reset 绑定匹配检查回合；set/cancel 绑定人类回合 | 防止模型自导自演、凑轮次或擅自套上/取消长时约束 |
@@ -759,17 +784,33 @@ dsh-plugin-endurance/
 | D13 | 零构建纯 ESM JS + JSDoc；node:test | 与社区插件生态一致，安装即用、无需构建 |
 | D14 | v0.1 无客户端 UI；M2 再做投影与命令 | 先保证 Host 语义正确，UI 后置 |
 | D15 | 检查消息来源用 `plugin:dsh-plugin-endurance` | 与真人/goal/schedule 可区分，客户端可定制渲染 |
+| D16 | 首轮检查在完成一个任务回合后开始；必要时先发一次 kickoff（用户确认） | 避免「刚登记就自问自答」；也避免 set 后无人唤醒 |
+| D17 | M2 提供 `/endurance status`、`/endurance stop`、`/endurance extend`（用户确认） | 需要用户侧可见的查询、停止与延长手段 |
 
 ---
 
-## 18. 开放问题（请评审确认）
+## 18. 评审结论与待确认项
 
-1. **时长语义**：确认采用「下限」——到点前即使连续达标也不结束（推荐，符合「跑够时长」的目的）？还是希望「达标即结束，时长只是计划参考」？
-2. **首轮检查时机**：`set` 所在回合结束后立即注入第 1 轮（推荐），还是等模型先完整执行一轮任务后再开始检查？
-3. **`set` 的授权**：是否同意要求「同一回合内有用户直接输入」？（更安全；代价是模型在后续回合里无法补登记。）
-4. **soak 节奏**：已达标但未到点时，默认按 `clamp(T/(2N), 5m, 30m)` 继续检查（推荐）；还是立即高频检查直到到点？
-5. **安全上限默认值**：时长上限 24h、轮次上限 100、未响应重发 3 次、宽限期 25%——是否合适？
-6. **M2 的命令**：除 `/endurance status`、`/endurance stop`，是否需要 `/endurance extend <duration>`？
+### 18.1 已确认（按首轮反馈修订）
+
+1. **收敛语义**：达标即结束，计划时长只是参考（§5.1 / §5.3 / D1 / D4）。
+2. **首轮检查**：等模型先完整执行一个任务回合；只做规划时先发一次 kickoff（§9.2 / D16）。
+3. **安全默认值**：时长上限 24h、轮次上限 100、未响应重发 3 次、宽限期 25%（§10.3）。
+4. **M2 命令**：`/endurance status`、`/endurance stop`、`/endurance extend <duration>`（§14 / D17）。
+
+### 18.2 待确认
+
+**Q3：`set` / `cancel` 是否必须「同一回合有用户直接输入」？**
+
+- **严格（当前设计，推荐）**：只有用户刚发言的那个回合里，模型才能登记续航或取消。用户 23:00 说「规划 8h 任务」，模型在同一回合调用 `set` → 通过；若模型在 23:30 的自动续跑回合里突然调用 `set`（此时用户已经入睡、没有新指令）→ 拒绝，并提示模型征得用户同意。
+- **宽松**：任何回合都允许模型登记/取消。好处是模型在后续回合发现用户早先提过长任务时可以补登记；风险是模型可能自行给会话套上数小时自动驱动，或在用户没要求时擅自取消。
+- 倾向严格：与 goal 的 `create_goal` 授权模型一致，且夜间无人值守时「谁授权了这段长跑」必须可追溯。
+
+**Q4：通过后的复查间隔如何取？**
+
+- 当前默认：`soakGap = clamp(duration / N, 5m, 2h)`。例子：计划 8h、N=3 → 每次「通过」后约 2h 再检查下一次。若第 1 轮 23:10 通过、第 2 轮 01:10 通过、第 3 轮 03:10 通过 → 03:10 收敛（不是等到 07:00 计划时刻）。若中途 reset 或置信率掉下门槛，streak 归零并按「尽快」节奏继续（不受 soak 限制）。
+- 备选：更贴近计划时刻，如 `gap = duration / (N - 1)`（8h/3 → 4h，三次通过大约落在 8h 附近）；或固定 30 分钟。
+- 问题：现在的「2h」是否符合直觉？还是希望复查更密/更疏？
 
 ---
 
