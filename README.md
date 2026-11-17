@@ -8,11 +8,11 @@
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that keeps long-running tasks under real convergence checks until they genuinely settle — not until the model feels finished.
 
-[![CI](https://github.com/Dynesshely/Endurance/actions/workflows/ci.yml/badge.svg)](https://github.com/Dynesshely/Endurance/actions/workflows/ci.yml)
+[![CI](https://github.com/Dynesshely/dsh-plugin-endurance/actions/workflows/ci.yml/badge.svg)](https://github.com/Dynesshely/dsh-plugin-endurance/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-339933.svg)](package.json)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4B32C3.svg)](https://github.com/deepseek-ai/deepseek-harness)
-[![Stars](https://img.shields.io/github/stars/Dynesshely/Endurance?style=social)](https://github.com/Dynesshely/Endurance/stargazers)
+[![Stars](https://img.shields.io/github/stars/Dynesshely/dsh-plugin-endurance?style=social)](https://github.com/Dynesshely/dsh-plugin-endurance/stargazers)
 
 </div>
 
@@ -87,7 +87,7 @@ The full contract — state machine, tool schemas, prompt placeholders, error co
 **Requirements:** DeepSeek Harness `0.2.2` (or a compatible 0.2.x), Node.js 20+.
 
 ```bash
-dsh plugin --profile web add /absolute/path/to/Endurance
+dsh plugin --profile web add /absolute/path/to/dsh-plugin-endurance
 ```
 
 This links the bundle into the profile and adds `dsh-plugin-endurance` to its bundle list. Enable the `endurance` row on the Plugins page — the host half applies without a full DSH restart.
@@ -130,7 +130,7 @@ npm run demo      # deterministic end-to-end demo of the loop
 ## Structure
 
 ```text
-Endurance/
+dsh-plugin-endurance/
 ├── index.js                 # host entry re-exports
 ├── cordis.patch.yml         # bundle row: id=endurance
 ├── src/
@@ -155,7 +155,7 @@ Endurance/
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Dynesshely/Endurance&type=Date&theme=dark)](https://star-history.com/#Dynesshely/Endurance&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Dynesshely/dsh-plugin-endurance&type=Date&theme=dark)](https://star-history.com/#Dynesshely/dsh-plugin-endurance&Date)
 
 </div>
 

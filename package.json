@@ -49,10 +49,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Dynesshely/Endurance.git"
+    "url": "git+https://github.com/Dynesshely/dsh-plugin-endurance.git"
   },
-  "homepage": "https://github.com/Dynesshely/Endurance#readme",
+  "homepage": "https://github.com/Dynesshely/dsh-plugin-endurance#readme",
   "bugs": {
-    "url": "https://github.com/Dynesshely/Endurance/issues"
+    "url": "https://github.com/Dynesshely/dsh-plugin-endurance/issues"
   }
 }
