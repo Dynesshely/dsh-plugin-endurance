@@ -1,79 +1,164 @@
-# dsh-plugin-endurance
+<div align="center">
 
-> 代号：**续航**（endurance）· 让长程任务持续接受收敛核验，直到所选模式结算。
+<img src="assets/banner.svg" alt="Endurance — run the full duration, verify until it converges" width="100%" />
 
-`dsh-plugin-endurance` 是 DeepSeek Harness（DSH）的插件。用户为长程任务声明**计划时长**、**连续达标轮数**与**置信率门槛**，并选择一种收敛模式；插件在任务回合结束后自动注入检查提示词，模型用工具汇报置信率或要求继续，直到收敛或到达安全上限。
+# Endurance
 
-## 两种收敛模式
+**Run the full duration. Verify until it converges.**
 
-| 模式 | 行为 |
-|---|---|
-| `converge` | 连续 N 轮达标即结束，不等到计划时刻 |
-| `idempotent_soak` | 先连续 N 轮达标，之后按固定「幂等间隔」重复核验，直到计划时刻；巡检阶段产物保持不变，任何返工/改进都必须 `reset` |
+A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that keeps long-running tasks under real convergence checks until they genuinely settle — not until the model feels finished.
 
-模式必须由用户明确选择；用户未说明时，模型应先询问，`set` 缺少模式会返回 `ENDURANCE_MODE_REQUIRED`。
+[![CI](https://github.com/Dynesshely/dsh-plugin-endurance/actions/workflows/ci.yml/badge.svg)](https://github.com/Dynesshely/dsh-plugin-endurance/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-339933.svg)](package.json)
+[![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4B32C3.svg)](https://github.com/deepseek-ai/deepseek-harness)
+[![Stars](https://img.shields.io/github/stars/Dynesshely/dsh-plugin-endurance?style=social)](https://github.com/Dynesshely/dsh-plugin-endurance/stargazers)
 
-## 工具
+</div>
 
-| 工具 | 作用 |
-|---|---|
-| `task_endurance_set` | 登记运行（时长 / 连续轮数 / 门槛 / 检查模板 / 模式 / 幂等间隔） |
-| `task_endurance_post` | 在检查回合汇报置信率，累计连续达标 |
-| `task_endurance_reset` | 任务未完成，清零连续达标并继续 |
-| `task_endurance_status` | 查询运行状态（模式、阶段、streak、计划进度） |
-| `task_endurance_cancel` | 用户明确要求时取消运行 |
+---
 
-- `set` / `cancel` 只允许在用户直接输入的回合、由 root agent 调用。
-- `post` / `reset` 只允许在插件注入的匹配检查回合内调用。
-- 计划时长是参考：`converge` 模式不等待计划时刻；`idempotent_soak` 用计划时刻作为巡检终点。
+## Introduction
 
-## 安装（本地 profile）
+Long-running agent tasks usually end when the model *says* it is done. For overnight or multi-hour work that is the wrong signal: the task ends early, the artifact is only half-verified, and you find out in the morning that the plan needs another round.
+
+**Endurance** adds a user-declared convergence contract to a session:
+
+- a **plan duration** (for example "8h"),
+- **N consecutive passing checks**,
+- a **confidence gate** (for example 85%),
+- and a **convergence mode** chosen by the user.
+
+After the model registers the run, Endurance injects model-authored verification prompts at the end of task rounds. The model reports confidence with `task_endurance_post`, or asks to keep working with `task_endurance_reset`. The run only settles on the user's terms.
+
+| Mode | Behavior |
+| --- | --- |
+| `converge` | Settles as soon as N consecutive checks pass. The plan duration is a planning reference. |
+| `idempotent_soak` | First reaches N consecutive passes, then keeps frozen-artifact checks on a fixed cadence until the plan time; any rework requires `reset`. |
+
+The mode is user-owned. When the user has not clearly chosen one, the model **asks first** — `task_endurance_set` rejects a missing mode with `ENDURANCE_MODE_REQUIRED`.
+
+### The five tools
+
+| Tool | Purpose |
+| --- | --- |
+| `task_endurance_set` | Register a run: duration, consecutive passes, gate, check prompt, mode, optional idempotent interval. |
+| `task_endurance_post` | Report this round's confidence (0–100) and evidence. |
+| `task_endurance_reset` | Keep working; clears the consecutive-pass streak. |
+| `task_endurance_status` | Read mode, phase, streak, plan progress, and recent checks. |
+| `task_endurance_cancel` | Stop the run — only on an explicit user request. |
+
+## How it works
+
+1. The user states the plan duration, the required consecutive passes, the confidence gate, and the convergence mode.
+2. In that human turn, the model calls `task_endurance_set` with a **model-authored** check prompt template.
+3. The model completes one full task round. If the set turn contained no real task work, Endurance sends a one-shot **kickoff** prompt instead of a premature check.
+4. At each idle boundary, Endurance renders the check prompt with live run data (`$endurance_id`, `$endurance_gate`, `$endurance_deadline`, …), appends a status footer, and injects it as its own user message.
+5. The model verifies, then calls `task_endurance_post` with a confidence or `task_endurance_reset` to continue.
+6. **`converge`** settles immediately when the streak is met. **`idempotent_soak`** freezes the artifact, re-verifies on an interval until the plan time, and settles there; a regression returns the run to active checks.
+
+```mermaid
+flowchart TD
+  U[User declares duration, rounds, gate, mode] --> S[task_endurance_set]
+  S --> W[Task round]
+  W --> I[Convergence check injected]
+  I --> V{Verify}
+  V -->|work remains| R[task_endurance_reset] --> W
+  V -->|confident| P[task_endurance_post]
+  P --> G{streak >= N ?}
+  G -->|no| I
+  G -->|yes| M{mode}
+  M -->|converge| D[Converged]
+  M -->|idempotent_soak| F[Frozen-artifact checks until plan time] --> D
+```
+
+### Guardrails
+
+- **Turn-bound authority.** `set` / `cancel` require a direct human turn on a root agent; `post` / `reset` require the exact injected check round. A model cannot self-arm a multi-hour run or pad its own streak.
+- **One count per round.** A round counts once; duplicate posts return `counted: false`; reset takes precedence over a same-round post.
+- **Bounded execution.** Check rounds, hard deadlines, unanswered prompts, and consecutive errors all have safety limits, so an unattended night cannot loop forever.
+- **Cooperative scheduling.** Checks are injected only when the agent is genuinely idle; a background shell or long-running process does not count as busy. Goal rounds and human messages take precedence.
+- **Durable by session log.** Run state is persisted as `plugin:dsh-plugin-endurance/state` records in the owning session, so restart, resume, and reload all recover the same run.
+
+The full contract — state machine, tool schemas, prompt placeholders, error codes, and security limits — lives in [`docs/DESIGN.md`](docs/DESIGN.md).
+
+## How to install
+
+**Requirements:** DeepSeek Harness `0.2.2` (or a compatible 0.2.x), Node.js 20+.
 
 ```bash
 dsh plugin --profile web add /absolute/path/to/dsh-plugin-endurance
 ```
 
-把该 bundle 加入 profile 的 `dsh.profile.bundles` 后启用。改 host 代码后在 Plugins 页关闭/开启该行即可生效，不需要重启 DSH 进程。
+This links the bundle into the profile and adds `dsh-plugin-endurance` to its bundle list. Enable the `endurance` row on the Plugins page — the host half applies without a full DSH restart.
 
-## 配置
-
-在 profile 的 `cordis.patch.yml` 中按行 id `endurance` 覆盖：
+Optional overrides in the profile's `cordis.patch.yml`:
 
 ```yaml
 - id: endurance
   config:
     maxDurationHours: 24
     maxChecks: 100
-    idempotentIntervalMinMs: 300000
-    idempotentIntervalMaxMs: 7200000
+    minCheckGapMs: 30000
 ```
 
-## 开发
-
-```bash
-npm test    # node --test
-npm run check
-```
-
-设计文档见 [`docs/DESIGN.md`](docs/DESIGN.md)。当前状态：M1 Host MVP；客户端状态行与 `/endurance` 命令属 M2。
-
-## 结构
+Quick start in a session:
 
 ```text
-index.js              host 入口
-src/
-  plugin.js           装配：工具、驱动、系统提示
-  host.js             宿主 Session 模块桥 + plugin record 写入
-  config.js           配置钳制
-  domain.js           纯状态机（双模式、幂等阶段、上限）
-  prompt.js           占位符渲染、状态尾注、kickoff
-  authority.js        人类回合 / 检查回合判定
-  service.js          运行注册表与持久化
-  driver.js           idle / tick 调度与注入
-  tools.js            5 个模型工具
-test/                 领域、提示词、工具、驱动、宿主桥测试
+Plan a long-running task: duration 8h, require 3 consecutive checks at 85% or above,
+and keep idempotent verification every hour until the plan time.
 ```
+
+> Already running? After installing, a plugin row toggle is enough for the host tools to appear; new tool declarations are appended on the next model step.
+
+## How to contribute
+
+Issues and pull requests are welcome.
+
+1. **Start with an issue.** Describe the goal, the acceptance criteria, and the affected behavior. For semantic changes to durations, modes, or authorization, discuss them in the issue first.
+2. **Keep the design and code in sync.** [`docs/DESIGN.md`](docs/DESIGN.md) is the source of truth for tool contracts, state transitions, prompt placeholders, and safety limits. Update it in the same PR.
+3. **Branch and test.** Use `feat/<issue>-<slug>`, `fix/<issue>-<slug>`, or `chore/<issue>-<slug>`; run `npm test` and `npm run check` before opening the PR.
+4. **Respect the boundaries.** The plugin is zero-build ESM JavaScript: no new runtime dependencies, no private absolute paths or credentials in code, docs, or commits.
+5. **Anything user-visible needs a test.** Pure domain logic, tool contracts, and the injection driver all have `node:test` coverage; extend it rather than describing the change in prose.
+
+```bash
+npm test          # node --test
+npm run check     # syntax checks
+npm run demo      # deterministic end-to-end demo of the loop
+```
+
+## Structure
+
+```text
+dsh-plugin-endurance/
+├── index.js                 # host entry re-exports
+├── cordis.patch.yml         # bundle row: id=endurance
+├── src/
+│   ├── plugin.js            # wiring: tools, driver, system-prompt guidance
+│   ├── host.js              # host Session module bridge + plugin-record writer
+│   ├── config.js            # config clamping
+│   ├── domain.js            # pure state machine: modes, phases, limits, snapshots
+│   ├── prompt.js            # placeholder rendering, status footer, kickoff copy
+│   ├── authority.js         # human-turn / check-round matching, work evidence
+│   ├── service.js           # per-session run registry and persistence
+│   ├── driver.js            # idle/tick scheduling, injection, recovery
+│   └── tools.js             # the five model-facing tools
+├── test/                    # domain, prompt, tools, driver, host-bridge tests
+├── tools/demo-endurance.mjs # deterministic loop demo (npm run demo)
+├── docs/DESIGN.md           # full design and contract
+├── locale/                  # bundle metadata (en / zh)
+├── assets/                  # README banner
+└── icon.svg
+```
+
+## Stars History (dark mode)
+
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Dynesshely/dsh-plugin-endurance&type=Date&theme=dark)](https://star-history.com/#Dynesshely/dsh-plugin-endurance&Date)
+
+</div>
 
 ## License
 
-MIT
+MIT © [Dynesshely](https://github.com/Dynesshely). See [LICENSE](LICENSE).
