@@ -1,7 +1,7 @@
 # dsh-plugin-endurance — 设计
 
 > 代号：**endurance（续航）**
-> 仓库：`Dynesshely/dsh-plugin-endurance` · 设计 issue：#1 · 状态：草案 v0.3（已按两轮评审修订，评审中）
+> 仓库：`Dynesshely/Endurance` · 设计 issue：#1 · 状态：草案 v0.3（已按两轮评审修订，评审中）
 
 ---
 

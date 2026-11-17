@@ -23,7 +23,7 @@ export const MODE_CONVERGE = 'converge'
 export const MODE_IDEMPOTENT_SOAK = 'idempotent_soak'
 
 /** Supported convergence modes. */
-export const MODES = Object.freeze([MODE_CONVERGE, MODE_IDEMPOTENT_SOAK])
+const MODES = Object.freeze([MODE_CONVERGE, MODE_IDEMPOTENT_SOAK])
 
 /** Run statuses. */
 export const STATUS = Object.freeze({
@@ -36,7 +36,7 @@ export const STATUS = Object.freeze({
 })
 
 /** Settled statuses that must never be advanced again. */
-export const TERMINAL_STATUSES = Object.freeze([
+const TERMINAL_STATUSES = Object.freeze([
   STATUS.CONVERGED,
   STATUS.CANCELLED,
   STATUS.EXHAUSTED,
@@ -78,7 +78,7 @@ export class DomainError extends Error {
 }
 
 /** Clamp a finite number into a closed range. */
-export function clamp(value, min, max) {
+function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
 
@@ -294,11 +294,6 @@ export function newRun(input) {
 /** Whether a run has already settled. */
 export function isTerminal(run) {
   return run === null || run === undefined || TERMINAL_STATUSES.includes(run.status)
-}
-
-/** Whether the plan time has passed while the run is still active. */
-export function isOverrunning(run, now) {
-  return !isTerminal(run) && now > run.targetAt
 }
 
 /** Append one history entry, keeping only the newest entries. */
