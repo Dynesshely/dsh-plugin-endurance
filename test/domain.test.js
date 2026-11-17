@@ -166,6 +166,13 @@ test('a low-confidence report clears the streak and keeps running', () => {
   assert.equal(run.status, STATUS.RUNNING)
 })
 
+test('a counted post clears the consecutive error count', () => {
+  let run = runningRun()
+  run = { ...run, consecutiveErrors: 2 }
+  run = report(run, 90, 1_100_000)
+  assert.equal(run.consecutiveErrors, 0)
+})
+
 test('reset clears the streak and returns to the active phase', () => {
   let run = runningRun({ mode: MODE_IDEMPOTENT_SOAK })
   run = report(run, 90, 1_100_000)

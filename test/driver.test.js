@@ -22,15 +22,15 @@ import {
 
 const config = readConfig()
 
-/** Build a driver over one fake agent. */
-function harness() {
+/** Build a driver over one fake agent; optionally start it later. */
+function harness({ start = true } = {}) {
   const session = createFakeSession()
   const agent = createFakeAgent(session)
   const agents = new Map([[agent.id, agent]])
   const { ctx, timers } = createFakeCtx(agents)
   const service = createService({ logger: ctx.logger, writer: createFakeWriter() })
   const driver = createDriver({ ctx, config, service, logger: ctx.logger })
-  driver.start()
+  if (start) driver.start()
   return { session, agent, ctx, service, driver, timers }
 }
 
@@ -198,6 +198,22 @@ test('a user-aborted turn starts the cooldown instead of injecting at once', asy
   await settleTurn(h)
   assert.equal(h.agent.followups.length, 0)
   assert.ok(h.service.get(h.session).pausedUntil > Date.now())
+})
+
+test('an active run on an already-idle agent is recovered after plugin start', async () => {
+  const h = harness({ start: false })
+  h.session.openTurnStartSeq = 0
+  h.session.push({ type: 'turn/start', data: { turn: 1 } })
+  h.session.push({ type: 'tool/call', data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{}' } })
+  seedRun(h, { status: STATUS.RUNNING, firstCheck: 'started' })
+  h.driver.start()
+  const recovery = h.timers
+    .filter(timer => timer.cleared === false)
+    .sort((left, right) => left.delay - right.delay)[0]
+  assert.ok(recovery, 'a recovery timer should be scheduled')
+  await fireTimer(recovery)
+  assert.equal(h.agent.followups.length, 1)
+  assert.equal(h.agent.followups[0].source.round, 1)
 })
 
 test('goal rounds suspend endurance injection', async () => {

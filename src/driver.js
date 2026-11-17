@@ -188,7 +188,10 @@ export function createDriver(options) {
           attempt: 0,
           phase: 'finalize',
         }))
-        await ctx.sessions.flush(agent.session)
+        const flushed = await ctx.sessions.flush(agent.session)
+        if (flushed === false) {
+          logger?.warn?.('endurance: session persistence did not acknowledge the wrap-up prompt')
+        }
       } catch (error) {
         logger?.warn?.(`endurance: could not inject the wrap-up prompt: ${messageOf(error)}`)
       }
@@ -235,7 +238,10 @@ export function createDriver(options) {
       return
     }
     try {
-      await ctx.sessions.flush(agent.session)
+      const flushed = await ctx.sessions.flush(agent.session)
+      if (flushed === false) {
+        logger?.warn?.('endurance: session persistence did not acknowledge the injected check')
+      }
     } catch (error) {
       logger?.warn?.(`endurance: session flush failed after injection: ${messageOf(error)}`)
     }
@@ -259,7 +265,10 @@ export function createDriver(options) {
     if (!persist(agent, next)) return
     try {
       agent.followup(message)
-      await ctx.sessions.flush(agent.session)
+      const flushed = await ctx.sessions.flush(agent.session)
+      if (flushed === false) {
+        logger?.warn?.('endurance: session persistence did not acknowledge the kickoff prompt')
+      }
     } catch (error) {
       logger?.warn?.(`endurance: could not inject the kickoff prompt: ${messageOf(error)}`)
     }
@@ -482,6 +491,18 @@ export function createDriver(options) {
     void drive(agent)
   }
 
+  /** Re-arm one live agent whose session already carries an active run. */
+  function recoverRun(agent) {
+    const run = service.get(agent.session)
+    if (run === null || isTerminal(run)) return
+    ensureDeadline(agent, run)
+    if (agent.status === 'idle') {
+      // The agent settled before this plugin mounted; give the log a moment to
+      // finish loading, then evaluate. Never followup synchronously at load.
+      scheduleAt(agent, Date.now() + 500)
+    }
+  }
+
   /** Register listeners and recover existing runs without injecting immediately. */
   function start() {
     ctx.on('agent/status', ({ agent, status }) => {
@@ -490,19 +511,13 @@ export function createDriver(options) {
     ctx.on('agent/inbox/inserted', ({ agent, message }) => onInboxInserted(agent, message))
     ctx.on('agent/error', ({ agent }) => onAgentError(agent))
     ctx.on('goal/changed', ({ agent }) => void drive(agent))
-    ctx.on('agent/created', ({ agent }) => {
-      const run = service.get(agent.session)
-      if (run !== null && !isTerminal(run)) ensureDeadline(agent, run)
-    })
+    ctx.on('agent/created', ({ agent }) => recoverRun(agent))
     ctx.on('agent/disposed', ({ agent }) => {
       clearAll(agent)
       states.delete(agent)
       service.forget(agent.session)
     })
-    for (const agent of ctx.agents.list()) {
-      const run = service.get(agent.session)
-      if (run !== null && !isTerminal(run)) ensureDeadline(agent, run)
-    }
+    for (const agent of ctx.agents.list()) recoverRun(agent)
   }
 
   /** Clear timers and withdraw a queued check message that was never consumed. */

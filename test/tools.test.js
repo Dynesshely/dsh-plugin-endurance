@@ -190,6 +190,55 @@ test('a passing post can converge the run', async () => {
   assert.equal(second.run.can_conclude, true)
 })
 
+test('a duplicate post in the same round is not counted twice', async () => {
+  const h = harness()
+  await setRun(h)
+  let run = h.service.get(h.session)
+  run = beginInjection(run, { now: Date.now(), phase: PHASE.ACTIVE, attempt: 1, messageId: 'm1' })
+  h.service.update(h.session, run)
+  addCheckMessage(h.session, run)
+  const first = await h.tools.get('task_endurance_post').execute(
+    { confidence: 90, summary: 'first pass' },
+    h.exec,
+  )
+  assert.equal(first.run.streak, 1)
+  const duplicate = await h.tools.get('task_endurance_post').execute(
+    { confidence: 95, summary: 'duplicate' },
+    h.exec,
+  )
+  assert.equal(duplicate.ok, true)
+  assert.equal(duplicate.counted, false)
+  assert.equal(duplicate.run.streak, 1)
+  assert.equal(h.service.get(h.session).streak, 1)
+})
+
+test('reset after a same-round post takes priority and clears the streak', async () => {
+  const h = harness()
+  await setRun(h)
+  let run = h.service.get(h.session)
+  run = beginInjection(run, { now: Date.now(), phase: PHASE.ACTIVE, attempt: 1, messageId: 'm1' })
+  h.service.update(h.session, run)
+  addCheckMessage(h.session, run)
+  await h.tools.get('task_endurance_post').execute({ confidence: 90, summary: 'pass' }, h.exec)
+  const reset = await h.tools.get('task_endurance_reset').execute({ reason: 'rework needed' }, h.exec)
+  assert.equal(reset.ok, true)
+  assert.equal(reset.run.streak, 0)
+  assert.equal(h.service.get(h.session).streak, 0)
+})
+
+test('malformed post arguments fail as a tool error, not a TypeError', async () => {
+  const h = harness()
+  await setRun(h)
+  let run = h.service.get(h.session)
+  run = beginInjection(run, { now: Date.now(), phase: PHASE.ACTIVE, attempt: 1, messageId: 'm1' })
+  h.service.update(h.session, run)
+  addCheckMessage(h.session, run)
+  await assert.rejects(
+    h.tools.get('task_endurance_post').execute({}, h.exec),
+    error => error.code === 'ENDURANCE_INVALID_PARAMS',
+  )
+})
+
 test('reset clears the streak and keeps the run active', async () => {
   const h = harness()
   await setRun(h)

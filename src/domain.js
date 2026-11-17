@@ -366,6 +366,7 @@ export function applyPost(run, input) {
     pendingRound: null,
     pendingMessageId: null,
     attempt: 0,
+    consecutiveErrors: 0,
     lastPostAt: now,
     updatedAt: now,
     history: pushHistory(run.history, {
@@ -415,6 +416,7 @@ export function applyReset(run, input) {
     pendingRound: null,
     pendingMessageId: null,
     nextTickAt: null,
+    lastCountedRound: Math.max(run.lastCountedRound, run.round),
     lastPostAt: now,
     updatedAt: now,
     history: pushHistory(run.history, {

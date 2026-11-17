@@ -72,6 +72,27 @@ export function hasDirectHumanInput(ctx, agent) {
 }
 
 /**
+ * Find the injected check message for one exact round in the open turn.
+ * Kickoff and finalize messages never count as check rounds.
+ * @param {object} ctx - plugin context carrying `agents`.
+ * @param {object} agent - calling agent.
+ * @param {object} run - current run snapshot.
+ * @param {number} round - exact check round.
+ * @returns {object | undefined} matching user/message event.
+ */
+export function checkRoundInOpenTurn(ctx, agent, run, round) {
+  if (run === null || run === undefined || !Number.isSafeInteger(round)) return undefined
+  const events = openTurnEvents(ctx, agent)
+  if (events === null) return undefined
+  return events.find(event => event?.type === 'user/message'
+    && event.data?.source?.kind === SOURCE_KIND
+    && event.data.source.enduranceId === run.runId
+    && event.data.source.round === round
+    && event.data.source.phase !== 'kickoff'
+    && event.data.source.phase !== 'finalize')
+}
+
+/**
  * Find the injected check message of the run's current pending round.
  * @param {object} ctx - plugin context carrying `agents`.
  * @param {object} agent - calling agent.
@@ -80,12 +101,7 @@ export function hasDirectHumanInput(ctx, agent) {
  */
 export function matchingCheckRound(ctx, agent, run) {
   if (run === null || run === undefined || run.pendingRound === null) return undefined
-  const events = openTurnEvents(ctx, agent)
-  if (events === null) return undefined
-  return events.find(event => event?.type === 'user/message'
-    && event.data?.source?.kind === SOURCE_KIND
-    && event.data.source.enduranceId === run.runId
-    && event.data.source.round === run.pendingRound)
+  return checkRoundInOpenTurn(ctx, agent, run, run.pendingRound)
 }
 
 /**

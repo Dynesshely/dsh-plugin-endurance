@@ -22,7 +22,7 @@ import {
   normalizeSetInput,
   settle,
 } from './domain.js'
-import { hasDirectHumanInput, matchingCheckRound } from './authority.js'
+import { checkRoundInOpenTurn, hasDirectHumanInput, matchingCheckRound } from './authority.js'
 import { findUnknownPlaceholders } from './prompt.js'
 
 /** Stable tool error carrying a machine code. */
@@ -115,6 +115,11 @@ function requireActiveRun(agent, service) {
     )
   }
   return run
+}
+
+/** Treat a non-object argument bag as an empty one (defensive raw registration). */
+function argsOf(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
 
 /** Require a live calling agent. */
@@ -285,9 +290,22 @@ export function registerTools(options) {
       },
     },
     output: OUTPUT,
-    execute: async (args, exec) => {
+    execute: async (rawArgs, exec) => {
+      const args = argsOf(rawArgs)
       const agent = requireAgent(exec)
       const run = requireActiveRun(agent, service)
+      if (run.pendingRound === null) {
+        const answered = run.lastCountedRound >= run.round
+          && checkRoundInOpenTurn(ctx, agent, run, run.round) !== undefined
+        if (answered) {
+          return {
+            ok: true,
+            counted: false,
+            run: runView(run),
+            message: 'This check round was already recorded; the streak is unchanged. End your turn and the next round is injected.',
+          }
+        }
+      }
       requireCheckRound(ctx, agent, run)
       let next
       try {
@@ -336,10 +354,19 @@ export function registerTools(options) {
       },
     },
     output: OUTPUT,
-    execute: async (args, exec) => {
+    execute: async (rawArgs, exec) => {
+      const args = argsOf(rawArgs)
       const agent = requireAgent(exec)
       const run = requireActiveRun(agent, service)
-      requireCheckRound(ctx, agent, run)
+      const pendingMatch = run.pendingRound !== null && matchingCheckRound(ctx, agent, run) !== undefined
+      const answeredMatch = run.pendingRound === null
+        && checkRoundInOpenTurn(ctx, agent, run, run.round) !== undefined
+      if (!pendingMatch && !answeredMatch) {
+        throw new EnduranceToolError(
+          'ENDURANCE_NOT_A_CHECK_ROUND',
+          'This is not an endurance check round. Report only when the injected check prompt asks for a result.',
+        )
+      }
       let next
       try {
         next = applyReset(run, {
@@ -391,7 +418,8 @@ export function registerTools(options) {
       },
     },
     output: OUTPUT,
-    execute: async (args, exec) => {
+    execute: async (rawArgs, exec) => {
+      const args = argsOf(rawArgs)
       const agent = requireAgent(exec)
       requireHuman(ctx, agent)
       if (args.confirm_user_request !== true) {

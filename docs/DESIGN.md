@@ -571,7 +571,7 @@ inject(run, round, attempt, phase):
   - 插件**不检查操作系统进程表**，也不把「有后台任务」当作忙碌；避免误判导致整夜巡检都被跳过。
   - tick 到点时若 agent 正在真实回合中 → 跳过本次（记录 `skippedTicks`），不排队、不补发；下一次 tick 重新判定。
 - 已有未响应检查时，tick 跳过（不堆叠检查消息），保证重复触发的效果幂等。
-- 注入后立即持久化 `pendingRound`，并调用 `ctx.sessions.flush(agent.session)` 确认落盘；flush 返回 false（组合里没有持久化监听）视为注入失败，fail-closed 处理，不假装已注入。
+- 注入后立即持久化 `pendingRound`，并调用 `ctx.sessions.flush(agent.session)` 确认落盘；flush 返回 false（组合里没有持久化监听）时记录错误告警——消息已经投递、无法回滚，因此保留状态并继续，下一次注入前会再次尝试持久化。
 - 定时器只保留一个「下一次动作」时间点，重复设置以最新为准；使用 `ctx.timeout`（Cordis timer，随 fiber 生命周期清理）或等价的 `unref` 定时器，重启后按绝对 epoch 时间重算。
 - `withoutInitiator` 包裹调度，避免把插件自身误认成交互发起者（对照 goal-round-driver）。
 
@@ -615,7 +615,8 @@ inject(run, round, attempt, phase):
 
 ### 10.2 失败与异常
 
-- **模型工具调用失败/报错**：不改变运行状态；在下一个检查回合重试。`agent/error` 计数达到 3 次连续错误 → `stalled`（避免夜间反复失败烧钱）。
+- **模型工具调用失败/报错**：不改变运行状态；在下一个检查回合重试。`agent/error` 计数达到 3 次连续错误 → `stalled`（避免夜间反复失败烧钱）；每次成功计分的 `post` 会把连续错误计数清零。
+- **工具参数畸形**（非对象/缺字段/类型错误）：按 `ENDURANCE_INVALID_PARAMS` 或对应状态错误返回，不允许抛出未捕获的 `TypeError`。
 - **注入失败**（`followup` 抛错）：记录 warn 日志，保留状态，下次 idle / 下一个 tick 重试；连续 3 次失败 → `stalled`。
 - **幂等 tick 连续被跳过**：只记录 `skippedTicks`，不视为错误；到计划时刻会直接结算（若 streak 仍满足）。
 - **插件卸载/禁用**：清除定时器与内存态；会话中已有记录保留，重新启用后恢复。
