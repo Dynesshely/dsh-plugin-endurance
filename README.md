@@ -86,6 +86,10 @@ The full contract — state machine, tool schemas, prompt placeholders, error co
 
 **Requirements:** DeepSeek Harness `0.2.2` (or a compatible 0.2.x), Node.js 20+.
 
+Endurance is a **host-side** plugin: it registers tools, tracks runs, and drives sessions entirely on the Host. It has no client UI yet (the status row and `/endurance` commands arrive in M2), so it works in Web, Desktop, headless, and SDK profiles wherever the bundle is installed.
+
+### DeepSeek Harness Web
+
 ```bash
 dsh plugin --profile web add /absolute/path/to/dsh-plugin-endurance
 ```
@@ -102,14 +106,45 @@ Optional overrides in the profile's `cordis.patch.yml`:
     minCheckGapMs: 30000
 ```
 
-Quick start in a session:
+### DeepSeek Harness Desktop
+
+Desktop runs the same Web workspace in an Electron shell and keeps its **own profile** (`desktop`), separate from CLI profiles. Install the bundle with either of these:
+
+**Option A — Plugins page (recommended)**
+
+1. Open Desktop and go to **Plugins**.
+2. Install `dsh-plugin-endurance` from its local directory, repository, or package spec.
+3. Enable the `endurance` row. The shared plugin manager applies the host half; if Desktop asks to restart, quit and reopen the application (running tasks are warned before quitting).
+
+**Option B — Desktop's own `dsh` command**
+
+Desktop can install a matching `dsh` command from its application menu: **Manage dsh Command… → Install**. Then:
+
+1. Launch Desktop once so Desktop initializes `$DSH_HOME/profiles/desktop`, then **fully quit** the application (use Quit, not just close the window).
+2. Install into the Desktop profile:
+
+   ```bash
+   dsh plugin --profile desktop add /absolute/path/to/dsh-plugin-endurance
+   ```
+
+3. Reopen Desktop, open **Plugins**, and enable the `endurance` row.
+
+Notes for Desktop:
+
+- Use the `dsh` command installed by Desktop. An npm-installed `dsh` manages ordinary CLI profiles but cannot mutate the Desktop profile or its executable package graph.
+- Desktop shares sessions, settings, credentials, and workspaces with CLI dsh, but **plugin activation is per profile**: installing for Web does not install for Desktop.
+- The Desktop `dsh` command can manage the `desktop` profile while the application is quit, but it cannot boot that profile.
+
+### Quick start
+
+After enabling the plugin, ask in a session:
 
 ```text
 Plan a long-running task: duration 8h, require 3 consecutive checks at 85% or above,
 and keep idempotent verification every hour until the plan time.
 ```
 
-> Already running? After installing, a plugin row toggle is enough for the host tools to appear; new tool declarations are appended on the next model step.
+> Already running? Toggling the `endurance` row is enough for the host tools to appear; new tool declarations are appended on the next model step.
 
 ## How to contribute
 

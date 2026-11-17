@@ -6,11 +6,11 @@
       <stop offset="1" stop-color="#111C33"/>
     </linearGradient>
     <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#38BDF8" stop-opacity="0.28"/>
+      <stop offset="0" stop-color="#38BDF8" stop-opacity="0.30"/>
       <stop offset="1" stop-color="#38BDF8" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="glow2" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#A5B4FC" stop-opacity="0.20"/>
+      <stop offset="0" stop-color="#A5B4FC" stop-opacity="0.24"/>
       <stop offset="1" stop-color="#A5B4FC" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
@@ -22,6 +22,13 @@
       <stop offset="0.6" stop-color="#38BDF8"/>
       <stop offset="1" stop-color="#A5B4FC"/>
     </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#BAE6FD" stop-opacity="0.42"/>
+      <stop offset="0.52" stop-color="#FFFFFF" stop-opacity="0.62"/>
+      <stop offset="0.6" stop-color="#BAE6FD" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
     <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
       <path d="M 44 0 L 0 0 0 44" fill="none" stroke="#1E293B" stroke-width="1"/>
     </pattern>
@@ -32,57 +39,100 @@
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
+    <filter id="drift" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="42"/>
+    </filter>
+    <clipPath id="frame">
+      <rect x="0" y="0" width="1600" height="520" rx="32"/>
+    </clipPath>
+    <style>
+      .glow-a { animation: driftA 26s ease-in-out infinite alternate; }
+      .glow-b { animation: driftB 34s ease-in-out infinite alternate; }
+      .beam   { animation: sweep 5.6s cubic-bezier(.35,0,.2,1) infinite; }
+      @keyframes driftA {
+        0%   { transform: translate(0, 0) scale(1); opacity: .9; }
+        100% { transform: translate(-110px, 46px) scale(1.18); opacity: .65; }
+      }
+      @keyframes driftB {
+        0%   { transform: translate(0, 0) scale(1.06); opacity: .75; }
+        100% { transform: translate(88px, -58px) scale(.92); opacity: 1; }
+      }
+      @keyframes sweep {
+        0%   { transform: translateX(-560px) skewX(-18deg); opacity: 0; }
+        8%   { opacity: .75; }
+        28%  { transform: translateX(2140px) skewX(-18deg); opacity: 0; }
+        100% { transform: translateX(2140px) skewX(-18deg); opacity: 0; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .glow-a, .glow-b, .beam { animation: none; }
+        .beam { opacity: 0; }
+      }
+    </style>
   </defs>
 
-  <rect width="1600" height="520" fill="url(#bg)"/>
-  <rect width="1600" height="520" fill="url(#grid)" opacity="0.45"/>
-  <circle cx="1330" cy="90" r="300" fill="url(#glow)"/>
-  <circle cx="1030" cy="470" r="260" fill="url(#glow2)"/>
+  <g clip-path="url(#frame)">
+    <rect width="1600" height="520" fill="url(#bg)"/>
+    <rect width="1600" height="520" fill="url(#grid)" opacity="0.45"/>
 
-  <!-- left: identity -->
-  <text x="112" y="150" fill="#38BDF8" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="600" letter-spacing="7">DEEPSEEK HARNESS PLUGIN</text>
+    <g class="glow-a">
+      <circle cx="1320" cy="120" r="240" fill="url(#glow)" filter="url(#drift)"/>
+    </g>
+    <g class="glow-b">
+      <circle cx="1010" cy="470" r="230" fill="url(#glow2)" filter="url(#drift)"/>
+    </g>
 
-  <text x="108" y="252" fill="url(#title)" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="104" font-weight="800" letter-spacing="3">ENDURANCE</text>
+    <!-- left: identity -->
+    <text x="112" y="150" fill="#38BDF8" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="600" letter-spacing="7">DEEPSEEK HARNESS PLUGIN</text>
 
-  <text x="112" y="314" fill="#E2E8F0" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="29" font-weight="500" letter-spacing="0.5">Run the full duration.</text>
-  <text x="112" y="352" fill="#7DD3FC" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="29" font-weight="600" letter-spacing="0.5">Verify until it converges.</text>
+    <text x="108" y="252" fill="url(#title)" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="104" font-weight="800" letter-spacing="3">ENDURANCE</text>
 
-  <rect x="112" y="392" width="88" height="3" rx="1.5" fill="#38BDF8" opacity="0.8"/>
+    <text x="112" y="314" fill="#E2E8F0" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="29" font-weight="500" letter-spacing="0.5">Run the full duration.</text>
+    <text x="112" y="352" fill="#7DD3FC" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="29" font-weight="600" letter-spacing="0.5">Verify until it converges.</text>
 
-  <text x="112" y="438" fill="#94A3B8" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" letter-spacing="2">CONVERGENCE CHECKS · TWO MODES · SESSION-DURABLE</text>
+    <rect x="112" y="392" width="88" height="3" rx="1.5" fill="#38BDF8" opacity="0.8"/>
 
-  <!-- right: orbit of checks and the plan horizon -->
-  <g>
-    <circle cx="1210" cy="252" r="152" fill="none" stroke="#1E3A5F" stroke-width="2"/>
-    <circle cx="1210" cy="252" r="112" fill="none" stroke="#1E3A5F" stroke-width="1.5" stroke-dasharray="3 9" opacity="0.8"/>
+    <text x="112" y="438" fill="#94A3B8" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="500" letter-spacing="2">CONVERGENCE CHECKS · TWO MODES · SESSION-DURABLE</text>
 
-    <path d="M 1210 100 A 152 152 0 0 1 1360 252" fill="none" stroke="url(#arc)" stroke-width="7" stroke-linecap="round"/>
-    <path d="M 1210 404 A 152 152 0 0 1 1058 252" fill="none" stroke="#1E3A5F" stroke-width="7" stroke-linecap="round"/>
+    <!-- right: orbit of checks and the plan horizon -->
+    <g>
+      <circle cx="1210" cy="252" r="152" fill="none" stroke="#1E3A5F" stroke-width="2"/>
+      <circle cx="1210" cy="252" r="112" fill="none" stroke="#1E3A5F" stroke-width="1.5" stroke-dasharray="3 9" opacity="0.8"/>
 
-    <circle cx="1210" cy="100" r="9" fill="#EA580C" opacity="0.9"/>
-    <circle cx="1210" cy="100" r="19" fill="none" stroke="#EA580C" stroke-width="1.5" opacity="0.45"/>
+      <path d="M 1210 100 A 152 152 0 0 1 1360 252" fill="none" stroke="url(#arc)" stroke-width="7" stroke-linecap="round"/>
+      <path d="M 1210 404 A 152 152 0 0 1 1058 252" fill="none" stroke="#1E3A5F" stroke-width="7" stroke-linecap="round"/>
 
-    <circle cx="1360" cy="252" r="10" fill="#38BDF8" filter="url(#soft)"/>
-    <circle cx="1210" cy="404" r="8" fill="#22D3EE" opacity="0.85"/>
-    <circle cx="1066" cy="200" r="6" fill="#A5B4FC" opacity="0.8"/>
-    <circle cx="1120" cy="360" r="6" fill="#38BDF8" opacity="0.55"/>
+      <circle cx="1210" cy="100" r="9" fill="#EA580C" opacity="0.9"/>
+      <circle cx="1210" cy="100" r="19" fill="none" stroke="#EA580C" stroke-width="1.5" opacity="0.45"/>
 
-    <circle cx="1210" cy="252" r="54" fill="none" stroke="#38BDF8" stroke-width="2" opacity="0.55"/>
-    <circle cx="1210" cy="252" r="54" fill="#0EA5E9" opacity="0.08"/>
-    <path d="M 1196 252 l 10 11 l 20 -24" fill="none" stroke="#BAE6FD" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="1360" cy="252" r="10" fill="#38BDF8" filter="url(#soft)"/>
+      <circle cx="1210" cy="404" r="8" fill="#22D3EE" opacity="0.85"/>
+      <circle cx="1066" cy="200" r="6" fill="#A5B4FC" opacity="0.8"/>
+      <circle cx="1120" cy="360" r="6" fill="#38BDF8" opacity="0.55"/>
 
-    <text x="1210" y="332" text-anchor="middle" fill="#7DD3FC" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="700" letter-spacing="5">N/N PASSED</text>
+      <circle cx="1210" cy="252" r="54" fill="none" stroke="#38BDF8" stroke-width="2" opacity="0.55"/>
+      <circle cx="1210" cy="252" r="54" fill="#0EA5E9" opacity="0.08"/>
+      <path d="M 1196 252 l 10 11 l 20 -24" fill="none" stroke="#BAE6FD" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <text x="1210" y="332" text-anchor="middle" fill="#7DD3FC" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="15" font-weight="700" letter-spacing="5">N/N PASSED</text>
+    </g>
+
+    <!-- right bottom: plan horizon -->
+    <g opacity="0.9">
+      <line x1="1000" y1="452" x2="1420" y2="452" stroke="#1E3A5F" stroke-width="2"/>
+      <line x1="1000" y1="446" x2="1000" y2="458" stroke="#64748B" stroke-width="2"/>
+      <line x1="1210" y1="446" x2="1210" y2="458" stroke="#64748B" stroke-width="2"/>
+      <line x1="1420" y1="446" x2="1420" y2="458" stroke="#38BDF8" stroke-width="2"/>
+      <circle cx="1420" cy="452" r="5" fill="#38BDF8"/>
+      <text x="1000" y="482" text-anchor="middle" fill="#64748B" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" letter-spacing="2">0h</text>
+      <text x="1210" y="482" text-anchor="middle" fill="#64748B" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" letter-spacing="2">PLAN</text>
+      <text x="1420" y="482" text-anchor="middle" fill="#7DD3FC" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" letter-spacing="2">SETTLED</text>
+    </g>
+
+    <!-- fast light sweep across the whole poster -->
+    <g class="beam" opacity="0">
+      <rect x="-60" y="-40" width="280" height="600" fill="url(#beam)"/>
+    </g>
   </g>
 
-  <!-- right bottom: plan horizon -->
-  <g opacity="0.9">
-    <line x1="1000" y1="452" x2="1420" y2="452" stroke="#1E3A5F" stroke-width="2"/>
-    <line x1="1000" y1="446" x2="1000" y2="458" stroke="#64748B" stroke-width="2"/>
-    <line x1="1210" y1="446" x2="1210" y2="458" stroke="#64748B" stroke-width="2"/>
-    <line x1="1420" y1="446" x2="1420" y2="458" stroke="#38BDF8" stroke-width="2"/>
-    <circle cx="1420" cy="452" r="5" fill="#38BDF8"/>
-    <text x="1000" y="482" text-anchor="middle" fill="#64748B" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" letter-spacing="2">0h</text>
-    <text x="1210" y="482" text-anchor="middle" fill="#64748B" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" letter-spacing="2">PLAN</text>
-    <text x="1420" y="482" text-anchor="middle" fill="#7DD3FC" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" letter-spacing="2">SETTLED</text>
-  </g>
+  <rect x="1" y="1" width="1598" height="518" rx="31" fill="none" stroke="#1E3A5F" stroke-width="2" opacity="0.9"/>
 </svg>
