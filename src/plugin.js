@@ -19,7 +19,7 @@ import { SOURCE_KIND } from './authority.js'
 export const name = 'endurance'
 
 /** Host services used by the plugin. */
-export const inject = ['agents', 'tools', 'sessions', 'systemPrompt']
+export const inject = ['agents', 'tools', 'sessions', 'systemPrompt', 'timer']
 
 /** Producer-owned message source kind of injected messages. */
 export { SOURCE_KIND }
