@@ -589,7 +589,7 @@ inject(run, round, attempt, phase):
 
 ### 9.6 子代理
 
-- 只为 root agent（`ctx.agents.roots()`）驱动注入；子代理的回合结束不触发。
+- 只为 root agent 驱动注入；root 的判定使用宿主支持的方式：`ctx.agents.get(agent.id) === agent` 且 `agent.session.header.origin !== 'subagent'`（与官方 goal 工具一致，宿主不提供 `agents.roots()`）。子代理的回合结束不触发。
 - 模型在检查回合里可自行使用子代理；其完成通知按 DSH 既有语义处理，不影响 endurance 计数。
 
 ### 9.7 重启恢复
@@ -779,7 +779,7 @@ dsh-plugin-endurance/
 | 契约 | 位置（DSH 源码） | 用途 |
 |---|---|---|
 | `agent.followup(message)`、`agent/status`、`agent/inbox/inserted`、`agent/turn-stopping` | `packages/core/agent` | 注入检查回合、感知 idle 与竞争消息 |
-| `agents.roots()`、`agents.get()`、`agents.list()`、`agents.turnBoundaryOf()`、`agents.withoutInitiator()` | `packages/core/agent` | 权限判定、liveness、回合边界、加载时重挂 |
+| `agents.get()`、`agents.list()`、`agents.turnBoundaryOf()`、`agents.withoutInitiator()`；`session.header.origin` | `packages/core/agent` / `packages/core/session` | 权限判定（liveness + 非 subagent origin）、回合边界、加载时重挂 |
 | `createUserMessage`、`MessageSourceMap` 合并扩展 | `packages/llm/llm` | 构造检查/kickoff 消息、声明 `plugin:dsh-plugin-endurance` 来源 |
 | `defineTool`、`ctx.tools.register` | `packages/interaction` / `packages/core/tools` | 工具注册与 output/render |
 | `ctx.sessions.flush` | `packages/core/session` | 注入后的持久化确认（fail-closed） |

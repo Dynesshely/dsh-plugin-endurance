@@ -68,6 +68,50 @@ async function setRun(h, args = {}) {
   return result
 }
 
+test('set rejects a subagent-origin session even inside a human-looking turn', async () => {
+  const h = harness()
+  h.agent.session.header = { origin: 'subagent' }
+  addHumanTurn(h.session)
+  await assert.rejects(
+    h.tools.get('task_endurance_set').execute({
+      duration: '1h',
+      min_consecutive_passes: 2,
+      confidence_gate: 80,
+      check_prompt: 'Check the objective and report confidence with task_endurance_post.',
+      convergence_mode: MODE_CONVERGE,
+    }, h.exec),
+    error => error.code === 'ENDURANCE_AUTHORITY_REQUIRED',
+  )
+  delete h.agent.session.header
+})
+
+test('set rejects a stale agent that is no longer the registry instance', async () => {
+  const h = harness()
+  addHumanTurn(h.session)
+  h.ctx.agents.get = () => ({ id: h.agent.id })
+  await assert.rejects(
+    h.tools.get('task_endurance_set').execute({
+      duration: '1h',
+      min_consecutive_passes: 2,
+      confidence_gate: 80,
+      check_prompt: 'Check the objective and report confidence with task_endurance_post.',
+      convergence_mode: MODE_CONVERGE,
+    }, h.exec),
+    error => error.code === 'ENDURANCE_AUTHORITY_REQUIRED',
+  )
+})
+
+test('unexpected throws are wrapped as ENDURANCE_INTERNAL instead of escaping raw', async () => {
+  const h = harness()
+  h.service.get = () => {
+    throw new TypeError("Cannot read properties of undefined (reading 'roots')")
+  }
+  await assert.rejects(
+    h.tools.get('task_endurance_status').execute({}, h.exec),
+    error => error.code === 'ENDURANCE_INTERNAL' && /failed unexpectedly/.test(error.message),
+  )
+})
+
 test('set requires a direct human turn', async () => {
   const h = harness()
   await assert.rejects(

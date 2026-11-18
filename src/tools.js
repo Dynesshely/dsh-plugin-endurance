@@ -122,6 +122,19 @@ function argsOf(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
 
+/** Convert any unexpected throw into a tool-level error PTC can attribute. */
+function guard(handler) {
+  return async (args, exec) => {
+    try {
+      return await handler(args, exec)
+    } catch (error) {
+      if (error instanceof EnduranceToolError) throw error
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new EnduranceToolError('ENDURANCE_INTERNAL', `endurance tool failed unexpectedly: ${detail}`)
+    }
+  }
+}
+
 /** Require a live calling agent. */
 function requireAgent(exec) {
   const agent = exec?.agent
@@ -131,9 +144,9 @@ function requireAgent(exec) {
   return agent
 }
 
-/** Require a direct human turn on a root agent. */
+/** Require a direct human turn on a live root agent. */
 function requireHuman(ctx, agent) {
-  if (!ctx.agents.roots().includes(agent) || !hasDirectHumanInput(ctx, agent)) {
+  if (!hasDirectHumanInput(ctx, agent)) {
     throw new EnduranceToolError(
       'ENDURANCE_AUTHORITY_REQUIRED',
       'This operation requires a direct human request in the current turn. Ask the user to confirm, then retry in the turn where they answer.',
@@ -215,7 +228,7 @@ export function registerTools(options) {
       },
     },
     output: OUTPUT,
-    execute: async (args, exec) => {
+    execute: guard(async (args, exec) => {
       if (!config.enabled) {
         throw new EnduranceToolError('ENDURANCE_INTERNAL', 'the endurance plugin is disabled in this profile')
       }
@@ -260,7 +273,7 @@ export function registerTools(options) {
           ? `Endurance armed (idempotent_soak). Finish one full task round first. After ${normalized.streakRequired} consecutive passes the run re-verifies every ${formatDuration(normalized.idempotentIntervalMs)} until ${formatClock(run.targetAt)}.`
           : `Endurance armed (converge). Finish one full task round first. The run settles after ${normalized.streakRequired} consecutive passes at or above ${normalized.gate}%.`,
       }
-    },
+    }),
     presentCall: () => ({ card: 'generic', title: 'Register endurance run', kind: 'other' }),
   })
 
@@ -290,7 +303,7 @@ export function registerTools(options) {
       },
     },
     output: OUTPUT,
-    execute: async (rawArgs, exec) => {
+    execute: guard(async (rawArgs, exec) => {
       const args = argsOf(rawArgs)
       const agent = requireAgent(exec)
       const run = requireActiveRun(agent, service)
@@ -333,7 +346,7 @@ export function registerTools(options) {
             ? `Recorded (${next.streak}/${next.streakRequired} consecutive passes). The run now verifies idempotently every ${formatDuration(next.idempotentIntervalMs)} until ${formatClock(next.targetAt)}; keep the artifact unchanged unless a regression appears.`
             : `Recorded (${next.streak}/${next.streakRequired} consecutive passes). Continue the task; the next check is injected after this turn.`,
       }
-    },
+    }),
     presentCall: () => ({ card: 'generic', title: 'Report endurance confidence', kind: 'other' }),
   })
 
@@ -354,7 +367,7 @@ export function registerTools(options) {
       },
     },
     output: OUTPUT,
-    execute: async (rawArgs, exec) => {
+    execute: guard(async (rawArgs, exec) => {
       const args = argsOf(rawArgs)
       const agent = requireAgent(exec)
       const run = requireActiveRun(agent, service)
@@ -386,7 +399,7 @@ export function registerTools(options) {
         run: runView(next),
         message: 'Reset recorded. Consecutive passes cleared; the next check is injected after this turn.',
       }
-    },
+    }),
     presentCall: () => ({ card: 'generic', title: 'Reset endurance streak', kind: 'other' }),
   })
 
@@ -395,10 +408,10 @@ export function registerTools(options) {
     description: STATUS_DESCRIPTION,
     parameters: { type: 'object', additionalProperties: false, properties: {} },
     output: OUTPUT,
-    execute: async (_args, exec) => {
+    execute: guard(async (_args, exec) => {
       const agent = requireAgent(exec)
       return { ok: true, run: runView(service.get(agent.session)) }
-    },
+    }),
     presentCall: () => ({ card: 'generic', title: 'Read endurance state', kind: 'read' }),
   })
 
@@ -418,7 +431,7 @@ export function registerTools(options) {
       },
     },
     output: OUTPUT,
-    execute: async (rawArgs, exec) => {
+    execute: guard(async (rawArgs, exec) => {
       const args = argsOf(rawArgs)
       const agent = requireAgent(exec)
       requireHuman(ctx, agent)
@@ -435,7 +448,7 @@ export function registerTools(options) {
       }
       driver.wake(agent)
       return { ok: true, run: runView(next), message: 'Endurance cancelled; no further checks will be injected.' }
-    },
+    }),
     presentCall: () => ({ card: 'generic', title: 'Cancel endurance run', kind: 'other' }),
   })
 }
