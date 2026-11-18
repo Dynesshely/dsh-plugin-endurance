@@ -59,13 +59,27 @@ export function openTurnEvents(ctx, agent) {
 }
 
 /**
+ * Whether one agent is the registry's live root agent.
+ *
+ * There is no `agents.roots()` on the Host registry. The supported definition
+ * is the one the official goal tools use: the exact live agent plus a Session
+ * whose header is not `origin: 'subagent'`.
+ * @param {object} ctx - plugin context carrying `agents`.
+ * @param {object} agent - candidate agent.
+ * @returns {boolean} true for a live top-level agent.
+ */
+export function isRootAgent(ctx, agent) {
+  return ctx.agents.get(agent.id) === agent && agent?.session?.header?.origin !== 'subagent'
+}
+
+/**
  * Whether the open turn of a root agent contains a direct human message.
  * @param {object} ctx - plugin context carrying `agents`.
  * @param {object} agent - calling agent.
  * @returns {boolean} true for an authenticated human turn.
  */
 export function hasDirectHumanInput(ctx, agent) {
-  if (!ctx.agents.roots().includes(agent)) return false
+  if (!isRootAgent(ctx, agent)) return false
   const events = openTurnEvents(ctx, agent)
   if (events === null) return false
   return events.some(event => event?.type === 'user/message' && event.data?.source?.kind === 'user')

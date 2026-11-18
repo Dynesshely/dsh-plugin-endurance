@@ -88,9 +88,6 @@ export function createFakeCtx(agents) {
       list() {
         return [...agents.values()]
       },
-      roots() {
-        return [...agents.values()]
-      },
       turnBoundaryOf(session) {
         return { openTurnStartSeq: session.openTurnStartSeq }
       },
