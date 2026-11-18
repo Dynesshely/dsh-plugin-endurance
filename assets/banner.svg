@@ -22,13 +22,22 @@
       <stop offset="0.6" stop-color="#38BDF8"/>
       <stop offset="1" stop-color="#A5B4FC"/>
     </linearGradient>
-    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="0.45" stop-color="#BAE6FD" stop-opacity="0.42"/>
-      <stop offset="0.52" stop-color="#FFFFFF" stop-opacity="0.62"/>
-      <stop offset="0.6" stop-color="#BAE6FD" stop-opacity="0.36"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    <linearGradient id="streakGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7DD3FC" stop-opacity="0"/>
+      <stop offset="0.34" stop-color="#7DD3FC" stop-opacity="0.06"/>
+      <stop offset="0.5" stop-color="#E0F2FE" stop-opacity="0.22"/>
+      <stop offset="0.64" stop-color="#A5B4FC" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#A5B4FC" stop-opacity="0"/>
     </linearGradient>
+    <linearGradient id="tail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38BDF8" stop-opacity="0"/>
+      <stop offset="1" stop-color="#BAE6FD" stop-opacity="0.75"/>
+    </linearGradient>
+    <radialGradient id="cometGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F0F9FF" stop-opacity="0.95"/>
+      <stop offset="0.35" stop-color="#7DD3FC" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#38BDF8" stop-opacity="0"/>
+    </radialGradient>
     <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
       <path d="M 44 0 L 0 0 0 44" fill="none" stroke="#1E293B" stroke-width="1"/>
     </pattern>
@@ -42,13 +51,29 @@
     <filter id="drift" x="-30%" y="-30%" width="160%" height="160%">
       <feGaussianBlur stdDeviation="42"/>
     </filter>
+    <filter id="streakBlur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <filter id="coreBlur" x="-200%" y="-20%" width="500%" height="140%">
+      <feGaussianBlur stdDeviation="1.4"/>
+    </filter>
+    <linearGradient id="streakFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.2" stop-color="#FFFFFF" stop-opacity="0.65"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="0.8" stop-color="#FFFFFF" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="streakMask" maskUnits="userSpaceOnUse" x="-320" y="0" width="640" height="520">
+      <rect x="-320" y="0" width="640" height="520" fill="url(#streakFade)"/>
+    </mask>
     <clipPath id="frame">
       <rect x="0" y="0" width="1600" height="520" rx="32"/>
     </clipPath>
     <style>
       .glow-a { animation: driftA 26s ease-in-out infinite alternate; }
       .glow-b { animation: driftB 34s ease-in-out infinite alternate; }
-      .beam   { animation: sweep 5.6s cubic-bezier(.35,0,.2,1) infinite; }
+      .streak { animation: streakSweep 6.5s cubic-bezier(.22,.61,.36,1) infinite; }
       @keyframes driftA {
         0%   { transform: translate(0, 0) scale(1); opacity: .9; }
         100% { transform: translate(-110px, 46px) scale(1.18); opacity: .65; }
@@ -57,15 +82,16 @@
         0%   { transform: translate(0, 0) scale(1.06); opacity: .75; }
         100% { transform: translate(88px, -58px) scale(.92); opacity: 1; }
       }
-      @keyframes sweep {
-        0%   { transform: translateX(-560px) skewX(-18deg); opacity: 0; }
-        8%   { opacity: .75; }
-        28%  { transform: translateX(2140px) skewX(-18deg); opacity: 0; }
-        100% { transform: translateX(2140px) skewX(-18deg); opacity: 0; }
+      @keyframes streakSweep {
+        0%   { transform: translateX(-820px) skewX(-12deg); opacity: 0; }
+        5%   { opacity: .85; }
+        20%  { opacity: .5; }
+        28%  { transform: translateX(2180px) skewX(-12deg); opacity: 0; }
+        100% { transform: translateX(2180px) skewX(-12deg); opacity: 0; }
       }
       @media (prefers-reduced-motion: reduce) {
-        .glow-a, .glow-b, .beam { animation: none; }
-        .beam { opacity: 0; }
+        .glow-a, .glow-b, .streak { animation: none; }
+        .streak, .comet { display: none; }
       }
     </style>
   </defs>
@@ -128,9 +154,20 @@
       <text x="1420" y="482" text-anchor="middle" fill="#7DD3FC" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" letter-spacing="2">SETTLED</text>
     </g>
 
-    <!-- fast light sweep across the whole poster -->
-    <g class="beam" opacity="0">
-      <rect x="-60" y="-40" width="280" height="600" fill="url(#beam)"/>
+    <!-- a restrained sheen: one thin, faint band sweeping fast -->
+    <g class="streak" opacity="0" mask="url(#streakMask)" style="mix-blend-mode: screen">
+      <rect x="-150" y="-140" width="300" height="800" fill="url(#streakGrad)" filter="url(#streakBlur)"/>
+      <rect x="-1.5" y="-140" width="3" height="800" fill="#F0F9FF" opacity="0.28" filter="url(#coreBlur)"/>
+    </g>
+
+    <!-- verification pulse travelling around the convergence ring -->
+    <g class="comet">
+      <ellipse cx="-34" cy="0" rx="42" ry="4.2" fill="url(#cometGlow)" opacity="0.35" filter="url(#soft)"/>
+      <path d="M 0 -2.2 C -26 -2.6 -52 -6.5 -74 -15 C -50 -3.5 -24 2.4 0 2.2 Z" fill="url(#tail)"/>
+      <circle r="19" fill="url(#cometGlow)" opacity="0.9"/>
+      <circle r="4.2" fill="#F0F9FF"/>
+      <circle r="7.5" fill="none" stroke="#BAE6FD" stroke-width="1" opacity="0.55"/>
+      <animateMotion dur="5.5s" repeatCount="indefinite" rotate="auto" path="M 1210 100 A 152 152 0 1 1 1058 252 A 152 152 0 1 1 1210 100"/>
     </g>
   </g>
 
